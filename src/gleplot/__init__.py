@@ -51,7 +51,7 @@ figure(figsize=(8, 6), dpi=100)
     Create a new figure
 """
 
-__version__ = "5.6.3"
+__version__ = "6.0.0"
 __author__ = "gleplot contributors"
 
 from typing import Union

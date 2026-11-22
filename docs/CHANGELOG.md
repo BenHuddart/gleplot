@@ -2,6 +2,925 @@
 
 <!-- version list -->
 
+## v6.0.0 (2026-11-22)
+
+### Bug Fixes
+
+- A NaN bar height is written missing, so the bar is left out
+  ([`7b83836`](https://github.com/BenHuddart/gleplot/commit/7b8383689d62bdeae13fac596be0c55daee0f5d6))
+
+- A span keeps a fill whose second curve alone is shifted
+  ([`1de367c`](https://github.com/BenHuddart/gleplot/commit/1de367cfddf14a9e7a15f2da0f949fdb44330e18))
+
+- Accept ds='default' on a polar axes as drawstyle='default' is
+  ([`a3e3335`](https://github.com/BenHuddart/gleplot/commit/a3e333548f64d1729322a93f41c5a14ab103131c))
+
+- Accept matplotlib's linewidths=None default in contour and tricontour
+  ([`6ff0442`](https://github.com/BenHuddart/gleplot/commit/6ff044225dd1a257ece8d3a4d1cbf1ef2da84da4))
+
+- Accept matplotlib's twiny() signature
+  ([`e825678`](https://github.com/BenHuddart/gleplot/commit/e8256784069f346651ff70cc0eddf55484b46c63))
+
+- Add_subplot rejects an index off the grid at the call
+  ([`0942333`](https://github.com/BenHuddart/gleplot/commit/0942333d682ed0464213d6c871d35fe1cb954fa8))
+
+- Address review of colorbars drawn by color.gle
+  ([`2db3bc4`](https://github.com/BenHuddart/gleplot/commit/2db3bc423c3d31d1103d7ee8dd24d4d85e6349ae))
+
+- Address review of rugs drawn by rugs.gle
+  ([`ffbad05`](https://github.com/BenHuddart/gleplot/commit/ffbad058e0c8684098493041d5ac8d6fd5d693aa))
+
+- Address review of the after-graph guide form
+  ([`521aa3e`](https://github.com/BenHuddart/gleplot/commit/521aa3ea34931ab42326c18653399b06516123e0))
+
+- Autoscale the primary y axis from the primary series only
+  ([#142](https://github.com/BenHuddart/gleplot/pull/142),
+  [`1fe31cf`](https://github.com/BenHuddart/gleplot/commit/1fe31cf3836281c6f94b7b007a6762e2d2fb587d))
+
+- Axhline/axvline(linewidth=None) draw the default width
+  ([`d6644f4`](https://github.com/BenHuddart/gleplot/commit/d6644f4bf863b68c5bfac4671ed847276415a2c0))
+
+- Axis() checks every limit before setting any; get_xlim/get_ylim check axis
+  ([`e13d662`](https://github.com/BenHuddart/gleplot/commit/e13d6622a73743d9f01421959860b37f818d287e))
+
+- Bind raw GLE lines to the datasets they read when a loaded figure is saved
+  ([#310](https://github.com/BenHuddart/gleplot/pull/310),
+  [`030aea7`](https://github.com/BenHuddart/gleplot/commit/030aea7d1ed34aa24776dbf42f4e11ad08e5eee8))
+
+- Bind raw reads of an error-bar file series apart from derived sources
+  ([#453](https://github.com/BenHuddart/gleplot/pull/453),
+  [`0952ec8`](https://github.com/BenHuddart/gleplot/commit/0952ec88a4c07aaa6fc7c7958d330338a886f792))
+
+- Bind raw reads of bar, fill, histogram and error-bar datasets
+  ([`c1a1b88`](https://github.com/BenHuddart/gleplot/commit/c1a1b883d87ba8965c8707914165e99dc6b5fc29))
+
+- Bind raw reads of error datasets; take a series' offset from it
+  ([`782904e`](https://github.com/BenHuddart/gleplot/commit/782904ee5738641897c39c2af560e383d8a0254b))
+
+- Break a plotted line at NaN, as matplotlib does
+  ([`a035489`](https://github.com/BenHuddart/gleplot/commit/a03548970017620914d1ba25406f814d4142371a))
+
+- Break a provider-backed line at NaN, as plot does
+  ([`3d6d6f2`](https://github.com/BenHuddart/gleplot/commit/3d6d6f21f5ce493ab9e1620ab239d252e6173613))
+
+- Break a table-backed gap series at its NaN rows
+  ([`33c1f56`](https://github.com/BenHuddart/gleplot/commit/33c1f56574e6a1244ebc204b756b47ceff57010d))
+
+- Break at inf too, warn when a gapped line is not smoothed or thinned
+  ([`7cc7842`](https://github.com/BenHuddart/gleplot/commit/7cc7842e534d52a81d91ab0309681cce425e9c9c))
+
+- Bring the remaining calls onto the shared unknown-keyword warning
+  ([`5f32ef0`](https://github.com/BenHuddart/gleplot/commit/5f32ef01f14c94c5d441f12500a60f131be095c7))
+
+- Check a guide's marker extent against its rows on load
+  ([`bb071af`](https://github.com/BenHuddart/gleplot/commit/bb071afd997126146e2d2118b96fffa33327d848))
+
+- Check axhspan/axvspan edges and broken-y guides for finite positions too
+  ([`d32a59b`](https://github.com/BenHuddart/gleplot/commit/d32a59bf03c285a6ef2fa7c57e848fb66aca4b80))
+
+- Check linewidth on hist step, function/fit curves and vlines too
+  ([`6b49993`](https://github.com/BenHuddart/gleplot/commit/6b499932ad8987a930a24f2f294f26634a5ea15f))
+
+- Compare a guide's ends as re-saving would write them
+  ([`42284a3`](https://github.com/BenHuddart/gleplot/commit/42284a328086ea5c530a89f9d2356277b4ac045f))
+
+- Compile SVG with -cairo so text in the default font is drawn
+  ([`ba579bd`](https://github.com/BenHuddart/gleplot/commit/ba579bd2c34a7a1128706a8e38f3cfe0f76c056b))
+
+- Decide an offset let's fate once every data statement is read
+  ([#381](https://github.com/BenHuddart/gleplot/pull/381),
+  [`db86071`](https://github.com/BenHuddart/gleplot/commit/db8607162bb419b10cee4dcc12a69b9bef561166))
+
+- Decide raw error bars once, from errors a let computes
+  ([`b0a6974`](https://github.com/BenHuddart/gleplot/commit/b0a6974e05a2bf256b8ee5e1d20a231cc36ca907))
+
+- Decide which imported files raw GLE shares once the figure is read
+  ([`2afe8ab`](https://github.com/BenHuddart/gleplot/commit/2afe8abc22fe0fd0ade288c39459afb2d76014ce))
+
+- Decode GLE's output as UTF-8, including GLECompiler.info()
+  ([`fc9b111`](https://github.com/BenHuddart/gleplot/commit/fc9b11154433ae1dea6ae4caee2cfc855d02fe39))
+
+- Describe and test the table-backed gap columns
+  ([`b125404`](https://github.com/BenHuddart/gleplot/commit/b1254048fe94ac1f0956dfb0591e391848e11166))
+
+- Disown an owned data file only when saving would change it
+  ([`13758be`](https://github.com/BenHuddart/gleplot/commit/13758be91e64e81f455b58e908170b7846e7318e))
+
+- Document where None is the default line style and drop dead None tests
+  ([`0aad075`](https://github.com/BenHuddart/gleplot/commit/0aad0751c9a0def7f459c1c3c359e07886fa2132))
+
+- Draw 'none' and zero-alpha faces as CLEAR, and warn on an empty bar swatch
+  ([`beb3126`](https://github.com/BenHuddart/gleplot/commit/beb3126f5099d48f1c1606f4cfb51f19838d9985))
+
+- Draw a contourf's colorbar as its bands, ticked at the levels
+  ([#258](https://github.com/BenHuddart/gleplot/pull/258),
+  [`238d6de`](https://github.com/BenHuddart/gleplot/commit/238d6de6f93c9c1698f3c89ffa9a21ef69b5d2b7))
+
+- Draw a step histogram in its edgecolor, as matplotlib does
+  ([`d65eff7`](https://github.com/BenHuddart/gleplot/commit/d65eff73cbd0dfcbd0e78524dcb490d1b5dc7a6c))
+
+- Draw an inverted image's colorbar in the reversed palette
+  ([#231](https://github.com/BenHuddart/gleplot/pull/231),
+  [`ef44a2b`](https://github.com/BenHuddart/gleplot/commit/ef44a2ba7d8b8fe32651fef75a4274fcb39bdbfd))
+
+- Draw linestyle=None as matplotlib's default solid line
+  ([`18e5669`](https://github.com/BenHuddart/gleplot/commit/18e5669d6f24db82c77aa9ed6b6f7113926df81a))
+
+- Draw no bar edge from linewidth or linestyle without edgecolor
+  ([`9bdaa14`](https://github.com/BenHuddart/gleplot/commit/9bdaa14c2625b7f29267d1d47dd77f2ba9716db7))
+
+- Draw no line for a line_from_file reference with linestyle='none'
+  ([`af29c97`](https://github.com/BenHuddart/gleplot/commit/af29c976d14f5cf63864049122cff679caed0a4b))
+
+- Draw no line for linewidth=0, as matplotlib's lw=0 draws no stroke
+  ([`03084ec`](https://github.com/BenHuddart/gleplot/commit/03084ec5475251b50f6b4fb4ca94e5bcb544efba))
+
+- Draw no ticks and no labels for set_xticks([]) / set_yticks([])
+  ([`bf53ff4`](https://github.com/BenHuddart/gleplot/commit/bf53ff40526ff0366bc456ff43e230bfe523b0a8))
+
+- Give a collapsed range a margin when no dataset can widen it
+  ([`3bdfce7`](https://github.com/BenHuddart/gleplot/commit/3bdfce732ddac141f13ecc2c1e883b40c1f4eb12))
+
+- Give the EPS-image Cairo warning the same specific reason
+  ([`fbcc1a5`](https://github.com/BenHuddart/gleplot/commit/fbcc1a56fdfbe6dd4597ae0a6f0459e3f7523f6e))
+
+- Hold bar, histogram, fit and after-graph guide numbers to their axis
+  ([`c7d6b85`](https://github.com/BenHuddart/gleplot/commit/c7d6b85e48e01decf912646621f52b029a2e6f5d))
+
+- Hold lone data-unit coordinates to their axis's precision
+  ([`e2d85a4`](https://github.com/BenHuddart/gleplot/commit/e2d85a49eab7b4423a4c6a50e5343133a560e771))
+
+- Hold the data a redefined let reads with it
+  ([#379](https://github.com/BenHuddart/gleplot/pull/379),
+  [`cfcfa89`](https://github.com/BenHuddart/gleplot/commit/cfcfa899dc91fd04e4e17e5161b380e6e9dd810b))
+
+- Ignore NaN and infinite values when autoscaling axis limits
+  ([`faaf928`](https://github.com/BenHuddart/gleplot/commit/faaf92857a5de9b3a7d6089f1b371e59816b126a))
+
+- Ignore non-finite guide coordinates when autoscaling
+  ([`48a331c`](https://github.com/BenHuddart/gleplot/commit/48a331c7de846602f908fd8eaa63a3103a1f7f91))
+
+- Judge a log-axis scatter drop on y plus its offset
+  ([`ab82358`](https://github.com/BenHuddart/gleplot/commit/ab823585b5762d4d80e4286b6b4532eced8227ce))
+
+- Judge per axis whether GLE can widen a collapsed range
+  ([`bc6bd3e`](https://github.com/BenHuddart/gleplot/commit/bc6bd3e093c31b0232555cef65ebf199bae14111))
+
+- Keep a (scalar, per-point) errorbar pair and short error messages
+  ([`c2de377`](https://github.com/BenHuddart/gleplot/commit/c2de377beb30c0ed10a6276a26b14b9f8abdfa1e))
+
+- Keep a 0 or 1 pt width read from a .gle file as written
+  ([#172](https://github.com/BenHuddart/gleplot/pull/172),
+  [`205a486`](https://github.com/BenHuddart/gleplot/commit/205a486b61f12087abde39c9bda33408c90a398a))
+
+- Keep a band narrower than float noise where it is
+  ([`92e60d8`](https://github.com/BenHuddart/gleplot/commit/92e60d8af9dae75763fe245e84451ea3df56e83f))
+
+- Keep a begin key with a hand-edited swatch as written
+  ([`15bf836`](https://github.com/BenHuddart/gleplot/commit/15bf836833c4873492ec31148946add7f9e80472))
+
+- Keep a colorbar in another palette than its heatmap's as raw GLE
+  ([`cec8ce6`](https://github.com/BenHuddart/gleplot/commit/cec8ce60af7472120613aae80b4e5016994a67de))
+
+- Keep a contour block whose levels open_gle cannot read as written
+  ([#176](https://github.com/BenHuddart/gleplot/pull/176),
+  [`62e9fed`](https://github.com/BenHuddart/gleplot/commit/62e9fed0aeb2e9837ae15436699ff7bf55a231cf))
+
+- Keep a data statement gleplot cannot write back as raw GLE, with its readers
+  ([#322](https://github.com/BenHuddart/gleplot/pull/322),
+  [`e7fc3dc`](https://github.com/BenHuddart/gleplot/commit/e7fc3dc262e63645f78cb6a09e471c9298b93a26))
+
+- Keep a fill raw when its two curves have different offsets
+  ([`b0c6bf3`](https://github.com/BenHuddart/gleplot/commit/b0c6bf327b125f9fbbf6e7767f18a325922db964))
+
+- Keep a fitz block open_gle cannot read whole as written
+  ([#380](https://github.com/BenHuddart/gleplot/pull/380),
+  [`fb5fc28`](https://github.com/BenHuddart/gleplot/commit/fb5fc28648903f3d7da7ee4e1c1137f3a94ea9ab))
+
+- Keep a gleplot data file that raw GLE also reads from being rewritten
+  ([`788490e`](https://github.com/BenHuddart/gleplot/commit/788490e9a702efe4f26bb935320b24b4d77364ad))
+
+- Keep a hist face colour's alpha off its edge; stroke 'none' in the fill
+  ([`4d32546`](https://github.com/BenHuddart/gleplot/commit/4d32546530788809972996dde5ef67c514276f56))
+
+- Keep a histogram let on a user's own data file as raw GLE
+  ([#174](https://github.com/BenHuddart/gleplot/pull/174),
+  [`febaeff`](https://github.com/BenHuddart/gleplot/commit/febaeff2b16dc8541d085cd48e3b9f4a8a3a525e))
+
+- Keep a let redefined by a later let as raw GLE
+  ([#379](https://github.com/BenHuddart/gleplot/pull/379),
+  [`6946b0b`](https://github.com/BenHuddart/gleplot/commit/6946b0b9a0f198dbcbf42ed731b0252886e81234))
+
+- Keep a loaded contour line's unset colour and width unset
+  ([`1248a86`](https://github.com/BenHuddart/gleplot/commit/1248a862053d3d98bcd73377995d4095f11e8fb4))
+
+- Keep a loaded file's layout around its raw GLE on re-save
+  ([`387a05d`](https://github.com/BenHuddart/gleplot/commit/387a05d469b843f1f233ae600fff2cd9010f6f57))
+
+- Keep a log axis' minor ticks under set_xticks([]), as matplotlib does
+  ([`9152367`](https://github.com/BenHuddart/gleplot/commit/91523678da16673c15198f970af94cdce0242a74))
+
+- Keep a raw bar's or hist let's data beside a modelled sibling
+  ([`aa212ef`](https://github.com/BenHuddart/gleplot/commit/aa212ef7af3d91e09c959d05784697d18025b1e2))
+
+- Keep a raw histogram's source defined and ignore strings when counting readers
+  ([#174](https://github.com/BenHuddart/gleplot/pull/174),
+  [`9347245`](https://github.com/BenHuddart/gleplot/commit/9347245b10e9b14873abef1b974768788b9496c7))
+
+- Keep a recovered 0 or 1 pt contour width as written
+  ([#172](https://github.com/BenHuddart/gleplot/pull/172),
+  [`135c549`](https://github.com/BenHuddart/gleplot/commit/135c54972181c94f904978b2098ad2fdf2f50053))
+
+- Keep a shared data file whole when re-saving a loaded figure
+  ([`7168ecd`](https://github.com/BenHuddart/gleplot/commit/7168ecdfd4034758f0e2a0872ca9975a5e0f14b9))
+
+- Keep a stack missing on one side only as raw GLE
+  ([`ab66af9`](https://github.com/BenHuddart/gleplot/commit/ab66af9ddfa0d7053eca73db53db657bf030a1f1))
+
+- Keep a twin scale's ticks when the primary axis has none
+  ([`c23f921`](https://github.com/BenHuddart/gleplot/commit/c23f9213d5035e438d4fc8827fc16f784d7b3a5d))
+
+- Keep a vertical colorbar's negative sep on reload
+  ([`7d48abc`](https://github.com/BenHuddart/gleplot/commit/7d48abc01e7fe37a677c3f9f9fdd3ad7e57a5553))
+
+- Keep an axis range of float noise apart when it is written
+  ([`ecd491b`](https://github.com/BenHuddart/gleplot/commit/ecd491bf990238827beeef30851534cc4540ab8d))
+
+- Keep an edited contourf band sub and its colormap as raw GLE
+  ([`91fc2b7`](https://github.com/BenHuddart/gleplot/commit/91fc2b71e9dc25b8b66eb526281227ae83e04f27))
+
+- Keep an error bar raw when its errors are read through a let
+  ([`ef7b78c`](https://github.com/BenHuddart/gleplot/commit/ef7b78cd1ca49dbf9aadc2413cf7d25160b9e82d))
+
+- Keep an error bar raw when its errors come from another file
+  ([`9c27b05`](https://github.com/BenHuddart/gleplot/commit/9c27b0511937ce8ec65346f3a46bc6b489b23707))
+
+- Keep an error-bar line on a user's file raw when a reference loses part of it
+  ([#188](https://github.com/BenHuddart/gleplot/pull/188),
+  [`5e85306`](https://github.com/BenHuddart/gleplot/commit/5e85306d5459be5a5ab5f27f278c2526f8eca981))
+
+- Keep an inverted heatmap's bar on load beside same-palette scatters
+  ([#231](https://github.com/BenHuddart/gleplot/pull/231),
+  [`5393c13`](https://github.com/BenHuddart/gleplot/commit/5393c13038aee8a6ca080f3094cc75867a0f7299))
+
+- Keep an offset let on a sidecar that does not load (#381, #453)
+  ([`2e11211`](https://github.com/BenHuddart/gleplot/commit/2e1121164bdf7eeaf668db9daeb320f52d13ce1d))
+
+- Keep an offset let on a user's file reading the data it shifts
+  ([#453](https://github.com/BenHuddart/gleplot/pull/453),
+  [`36b03bf`](https://github.com/BenHuddart/gleplot/commit/36b03bff3b747fd8ae307fc8f929ab8df037b0de))
+
+- Keep an offset let or a two-file fill on a user's file raw
+  ([`ed0df7d`](https://github.com/BenHuddart/gleplot/commit/ed0df7dea1a2f099470991e6645d60f96ff3a420))
+
+- Keep each fill curve's own offset instead of keeping the fill raw
+  ([`b817b76`](https://github.com/BenHuddart/gleplot/commit/b817b7611e52673e315adcee51ddf9b53056b6c0))
+
+- Keep function curves modelled beside a histogram or colour let
+  ([#344](https://github.com/BenHuddart/gleplot/pull/344),
+  [`686e613`](https://github.com/BenHuddart/gleplot/commit/686e61314b45b9a6ce952358e325c6ed719d1478))
+
+- Keep generated subs a loaded file still needs, and edited ones
+  ([`984a000`](https://github.com/BenHuddart/gleplot/commit/984a000534d625395ddd89e50430e06efd0580b1))
+
+- Keep GLE's output in the missing-include message
+  ([`b931fc3`](https://github.com/BenHuddart/gleplot/commit/b931fc32edd943f9a29ecfa4f6f15fad69c5147c))
+
+- Keep mdist and deresolve on an error-bar dataset read from a file
+  ([#343](https://github.com/BenHuddart/gleplot/pull/343),
+  [`3342e24`](https://github.com/BenHuddart/gleplot/commit/3342e24a4faf43ef76e1d48dec3ad526ce24a21b))
+
+- Keep minor ticks asked for on any axis, and none on a grid
+  ([`836533e`](https://github.com/BenHuddart/gleplot/commit/836533e3693b4fb72f6b97fd7e735d1305b0f401))
+
+- Keep new LaTeX preamble files while another script's cache folder exists
+  ([`7b49caf`](https://github.com/BenHuddart/gleplot/commit/7b49caf92d1b3e5d9e0f4ddc547ac836fac35d7b))
+
+- Keep only missing-value columns unconverted in shared sidecars
+  ([`c005288`](https://github.com/BenHuddart/gleplot/commit/c0052884b1f792a430e621215d523d9bc094fab5))
+
+- Keep only the files whose raw datasets would lose their definition
+  ([`ee68ab7`](https://github.com/BenHuddart/gleplot/commit/ee68ab7525dd480795eb122c4441e6745060c5aa))
+
+- Keep raw GLE between graph blocks after the graph it follows
+  ([`70ec4fb`](https://github.com/BenHuddart/gleplot/commit/70ec4fbe65abf75093cfd3d975326de0e60b055c))
+
+- Keep room for the top axis a raw x2axis line numbers
+  ([`0846e84`](https://github.com/BenHuddart/gleplot/commit/0846e847f31d1072ee7d1ec2c8d4eafa1a5a8e55))
+
+- Keep the edge an unsupported bar linestyle says it keeps
+  ([`9f6c70e`](https://github.com/BenHuddart/gleplot/commit/9f6c70e92233c8dce57ad4ca790c90f224496efa))
+
+- Keep the writer's blank after a regenerated sub out of raw GLE
+  ([`5342e06`](https://github.com/BenHuddart/gleplot/commit/5342e06bebe8dc4ef4480c59eaa6a6b8cf74d897))
+
+- Leave a label starting with an underscore out of the legend
+  ([`f34c5dc`](https://github.com/BenHuddart/gleplot/commit/f34c5dca99db66994006f618ebc98ce96f35a2ec))
+
+- Leave an unmasked or non-numeric masked array as it is
+  ([`5bcc533`](https://github.com/BenHuddart/gleplot/commit/5bcc5330c915349733d69f4dae4c39c64a294848))
+
+- Leave out a scatter point or bar whisker whose value is masked
+  ([`c1288cc`](https://github.com/BenHuddart/gleplot/commit/c1288cc579e0f7ea7436099be896a432a35f4920))
+
+- Leave out lw=0 segments and line modes silently; warn where no line can go
+  ([`0bf76b0`](https://github.com/BenHuddart/gleplot/commit/0bf76b0418c2a9462eff9567ff6f4f9956f0e12b))
+
+- Let alpha= win over a zero-alpha colour, and keep open drawings drawable
+  ([`c93e75a`](https://github.com/BenHuddart/gleplot/commit/c93e75a857bb5a041305c094a89ad7d01f904e08))
+
+- Limit .gle/ cleanup to the script's own folder and new preamble files
+  ([`4bd5bc7`](https://github.com/BenHuddart/gleplot/commit/4bd5bc7cf6caa61099af6dc2123233cf3531e886))
+
+- Line_from_file(linewidth=None) draws the default width
+  ([`4cd0852`](https://github.com/BenHuddart/gleplot/commit/4cd0852933d08e6080fb5861f3636a168fc39caf))
+
+- Match a kept comment by its line, not its text
+  ([#382](https://github.com/BenHuddart/gleplot/pull/382),
+  [`165e3bf`](https://github.com/BenHuddart/gleplot/commit/165e3bf1290b87fa19139f0197fcc593abb3058b))
+
+- Match only calls of the polar and image subs in raw GLE
+  ([`8e4bcf6`](https://github.com/BenHuddart/gleplot/commit/8e4bcf626e94d7b5221b29674ca9a8c70893d379))
+
+- Model a file error bar the writer depends on, and name what it drops
+  ([#188](https://github.com/BenHuddart/gleplot/pull/188),
+  [`acadfa4`](https://github.com/BenHuddart/gleplot/commit/acadfa490174fa1082119e491f5b3d3f73172a06))
+
+- Move gleplot's subs only ahead of a raw sub that calls them
+  ([`5d8e2e3`](https://github.com/BenHuddart/gleplot/commit/5d8e2e308fd5815f6e684bfa182c57e7201d9936))
+
+- Name an explicit cairo=True as the reason for the Cairo font warning
+  ([`42a8b86`](https://github.com/BenHuddart/gleplot/commit/42a8b8686dbe6e1bccf1ac1fce8da3e2e0eeb57f))
+
+- Name masked samples and infinite sizes in the scatter, bar and hist errors
+  ([`cb11277`](https://github.com/BenHuddart/gleplot/commit/cb112779ae62081329a0ee6f904cdba3cd465f54))
+
+- Name the argument that held an unrecognised colour
+  ([`1892d10`](https://github.com/BenHuddart/gleplot/commit/1892d10b4083f2b76b6530146288e18d7b048537))
+
+- Never rewrite a user's data file read by a fill or bar
+  ([`1501f7a`](https://github.com/BenHuddart/gleplot/commit/1501f7ad52aafd09f5df81537ae6fcc20482bdf0))
+
+- Normalise a data file's path without resolving it
+  ([`626e16c`](https://github.com/BenHuddart/gleplot/commit/626e16cf7297233123576edf89cf71f71733d3fe))
+
+- Note a let kept as raw GLE with the line that draws it
+  ([#429](https://github.com/BenHuddart/gleplot/pull/429),
+  [`c5602d7`](https://github.com/BenHuddart/gleplot/commit/c5602d738c379b3941a662e8544388692ce476a9))
+
+- Note colorbars kept raw after 'end graph' instead of resetting or overwriting them
+  ([`a5e3d6e`](https://github.com/BenHuddart/gleplot/commit/a5e3d6ee75710c01de438b6bcb5dfeb654035c34))
+
+- Note every colorbar and contour-label group kept raw after a graph
+  ([`d6cf795`](https://github.com/BenHuddart/gleplot/commit/d6cf795bc9562cb7d67c719b6191d0a7f9e8a836))
+
+- Note every raw let raw GLE uses, once, after the block
+  ([#429](https://github.com/BenHuddart/gleplot/pull/429),
+  [`086d03a`](https://github.com/BenHuddart/gleplot/commit/086d03acb456afb0baee0fd5a62ea26ab0d9c3a1))
+
+- One format resolver for plot, step and errorbar; keywords win
+  ([`6a281f7`](https://github.com/BenHuddart/gleplot/commit/6a281f7f544da95a724f1aaa579f09c836fa89f3))
+
+- Open_gle keeps files GLE reads differently as references
+  ([#169](https://github.com/BenHuddart/gleplot/pull/169),
+  [`9c6c852`](https://github.com/BenHuddart/gleplot/commit/9c6c8522e16d6948f3998c02ac0320a8c71fcd69))
+
+- Open_gle maps columns by GLE's own reading of the data file
+  ([`af71366`](https://github.com/BenHuddart/gleplot/commit/af713667f90c69df2cb1f875a6b12ee4334bdd55))
+
+- Pair each legend key with its own graph's, on a copy of the figure
+  ([`86fa8f4`](https://github.com/BenHuddart/gleplot/commit/86fa8f436886d5c942accd3f282728e395366746))
+
+- Pass -cairo for every SVG compile, and warn when cairo=False is ignored
+  ([`be3a4fa`](https://github.com/BenHuddart/gleplot/commit/be3a4fa307885f83ab129b4cb57817625dbe4f20))
+
+- Place a tripcolor's grid nodes where tricontour places them
+  ([`616652f`](https://github.com/BenHuddart/gleplot/commit/616652f8a467c8099427e1a285890db8e4c86863))
+
+- Place an imshow grid's nodes where contour places them
+  ([`9a99c83`](https://github.com/BenHuddart/gleplot/commit/9a99c83dd4f4b370536b5b229bd1b0ba908e9895))
+
+- Raise for an unknown colour at the call
+  ([`ea17104`](https://github.com/BenHuddart/gleplot/commit/ea17104597689595198e58c21a61a2585cf29b29))
+
+- Raise when a two-curve file fill has no second column
+  ([#403](https://github.com/BenHuddart/gleplot/pull/403),
+  [`a2e6ba9`](https://github.com/BenHuddart/gleplot/commit/a2e6ba9e1cf994a74067922f5a76b387232d73a3))
+
+- Read a band sub in either form, and reject one with no colour range
+  ([`9d7f03f`](https://github.com/BenHuddart/gleplot/commit/9d7f03f6951040191afb4a6fe455a3745d184ab2))
+
+- Read a masked value as NaN where matplotlib leaves it out
+  ([`56becd5`](https://github.com/BenHuddart/gleplot/commit/56becd526217449e4f9355fb5eb06fe85a62cc8b))
+
+- Read an error bar's errors from its own file under any spelling
+  ([`82a38ad`](https://github.com/BenHuddart/gleplot/commit/82a38ad62fa417d8832448b0a059f1509d0ae998))
+
+- Read an unmarked heatmap grid where colormap draws its nodes
+  ([`901ea1f`](https://github.com/BenHuddart/gleplot/commit/901ea1f2f604c33952ea8ecd9b5f68bfd656105a))
+
+- Read back every style default the writer records
+  ([#345](https://github.com/BenHuddart/gleplot/pull/345),
+  [`a844ebc`](https://github.com/BenHuddart/gleplot/commit/a844ebc565cd8138eb82d657da70c3889e987eee))
+
+- Read errorbar xerr/yerr shapes as matplotlib does
+  ([`70ee5ae`](https://github.com/BenHuddart/gleplot/commit/70ee5aeb7308c362a98dc1e033ad2615f916e815))
+
+- Read GLE strings without backslash escapes, as GLE does
+  ([`5407b0f`](https://github.com/BenHuddart/gleplot/commit/5407b0fbf59aca946a01f0d575688c282697e2a5))
+
+- Read matplotlib format strings in plot, step and errorbar
+  ([`0fef6aa`](https://github.com/BenHuddart/gleplot/commit/0fef6aa1dbec9370c815f36f9a9e06b1c868dce5))
+
+- Read only as far as the layout needs, and note a file GLE stops on
+  ([`940dc53`](https://github.com/BenHuddart/gleplot/commit/940dc53deea474bd074521edb9a51869d8df5842))
+
+- Read only the subs gleplot writes; keep a glp_ sub of one's own
+  ([`a1af3e8`](https://github.com/BenHuddart/gleplot/commit/a1af3e868acb962ae17c189eb6483d82b73e8ff8))
+
+- Record a non-default default_linewidth so open_gle restores it
+  ([#345](https://github.com/BenHuddart/gleplot/pull/345),
+  [`228e9dd`](https://github.com/BenHuddart/gleplot/commit/228e9dd1d16711ebc5b65c925769d93c0f8d4ba0))
+
+- Record default colours too, and report a malformed msize_scale
+  ([#345](https://github.com/BenHuddart/gleplot/pull/345),
+  [`f74d653`](https://github.com/BenHuddart/gleplot/commit/f74d653db46b1de05bbc8481a885534d065501c4))
+
+- Reject a data_file holding a double quote at the call
+  ([`7b4aa91`](https://github.com/BenHuddart/gleplot/commit/7b4aa9116ceb35d25d2c843d9fea16b8fc6000e2))
+
+- Reject a masked imshow Z instead of drawing the value under the mask
+  ([`6979659`](https://github.com/BenHuddart/gleplot/commit/6979659000313c00c283e83c6c464ef54d89d122))
+
+- Reject a NaN or infinite axhline/axvline position at the call
+  ([`9cbe42f`](https://github.com/BenHuddart/gleplot/commit/9cbe42ffde0c40c6f0702ec54339e53920182a97))
+
+- Reject a NaN, infinite or negative linewidth on plot and line calls
+  ([`2cad58c`](https://github.com/BenHuddart/gleplot/commit/2cad58ca5ef83f61bd427551d510274462908f55))
+
+- Reject an axis= on set_xlabel/set_ylabel that names no axis
+  ([`f76aa43`](https://github.com/BenHuddart/gleplot/commit/f76aa4301f2515df4beb71be0e296acc23516267))
+
+- Reject an unknown file-fill target too ([#403](https://github.com/BenHuddart/gleplot/pull/403),
+  [`0bbd386`](https://github.com/BenHuddart/gleplot/commit/0bbd3866ea8d00a60a593980afa70c441edbd843))
+
+- Reject an unknown GLEGraphConfig scale_mode and warn on 'fixed'
+  ([`8a8c0e5`](https://github.com/BenHuddart/gleplot/commit/8a8c0e583c878beeea9736a21d37c1ef5a48c059))
+
+- Reject plot and errorbar data that does not pair up, at the call
+  ([`3b019c9`](https://github.com/BenHuddart/gleplot/commit/3b019c9006336378ba8920c5259f5de2bfb6781d))
+
+- Reject scatter x and y of different sizes at the call
+  ([`983939f`](https://github.com/BenHuddart/gleplot/commit/983939f63caa838ee9d136ac606153429b55db62))
+
+- Remove GLE's .gle/ LaTeX cache entries that a savefig compile created
+  ([`1c4259a`](https://github.com/BenHuddart/gleplot/commit/1c4259a2039d676571539fd2b4d2596d2c3e3f7b))
+
+- Replace undecodable bytes in GLE's output instead of raising
+  ([`db5e2b4`](https://github.com/BenHuddart/gleplot/commit/db5e2b4b2f2c9ee34548944c34a3dd21363c8afd))
+
+- Report a comment after a statement open_gle models
+  ([#382](https://github.com/BenHuddart/gleplot/pull/382),
+  [`4749e56`](https://github.com/BenHuddart/gleplot/commit/4749e569fbcc34c3e2aa55ab3b4e47c8419118b3))
+
+- Report a contour block line that open_gle drops
+  ([#176](https://github.com/BenHuddart/gleplot/pull/176),
+  [`901a617`](https://github.com/BenHuddart/gleplot/commit/901a617d47e538627154b457b826701df451cdaa))
+
+- Report a fitz block line that open_gle drops
+  ([#380](https://github.com/BenHuddart/gleplot/pull/380),
+  [`0917834`](https://github.com/BenHuddart/gleplot/commit/0917834745a43e3120de395dc880a2b5a35a1937))
+
+- Report an 'end sub' or 'end if' with nothing open to close
+  ([#189](https://github.com/BenHuddart/gleplot/pull/189),
+  [`c94a1b8`](https://github.com/BenHuddart/gleplot/commit/c94a1b84ac4235470261d8e3fa5b568b76451097))
+
+- Report each unloaded file once per graph ([#169](https://github.com/BenHuddart/gleplot/pull/169),
+  [`999ad44`](https://github.com/BenHuddart/gleplot/commit/999ad44823a8ee09e2ef47a7e27b08f7f8254f3b))
+
+- Report everything a contour's dataset line loses on load
+  ([#296](https://github.com/BenHuddart/gleplot/pull/296),
+  [`39e72f0`](https://github.com/BenHuddart/gleplot/commit/39e72f017bae5c4f240df04a91ebc5d863f987e4))
+
+- Resolve text aliases per call, keep grid on for any keyword, and more
+  ([`958d60e`](https://github.com/BenHuddart/gleplot/commit/958d60e0d80e2159845b348819be89762fb771dd))
+
+- Review fixes for data-statement recovery ([#169](https://github.com/BenHuddart/gleplot/pull/169),
+  [`fb688d9`](https://github.com/BenHuddart/gleplot/commit/fb688d9d36270b8a85e85b14b1ee55845a9ea498))
+
+- Review fixes for the contourf colorbar ([#258](https://github.com/BenHuddart/gleplot/pull/258),
+  [`dda46d2`](https://github.com/BenHuddart/gleplot/commit/dda46d2ea1b339c17b2b45caf260a896726122b6))
+
+- Review fixes for the data-range edges ([#343](https://github.com/BenHuddart/gleplot/pull/343),
+  [`276415d`](https://github.com/BenHuddart/gleplot/commit/276415d5dba2005f44965cb33086a152c159282d))
+
+- Review fixes for the primary y autoscale ([#142](https://github.com/BenHuddart/gleplot/pull/142),
+  [`f24170f`](https://github.com/BenHuddart/gleplot/commit/f24170f97504c7e2d046bc91c7410aafc153c907))
+
+- Say what to pass when scatter x and y differ in size
+  ([`76e4ae6`](https://github.com/BenHuddart/gleplot/commit/76e4ae69eb85b34d51f424616d5262072f39ef20))
+
+- Set_xlim/set_ylim reject a bad axis or a non-finite limit
+  ([`de9806b`](https://github.com/BenHuddart/gleplot/commit/de9806b6d3c9c0f03d5a489158959052490bfd4a))
+
+- Set_xlim/set_ylim take only numbers or None as limits
+  ([`fefa13c`](https://github.com/BenHuddart/gleplot/commit/fefa13c093282226031d47d19ce5d25bc3497082))
+
+- Share a data file only where its columns allow it
+  ([`69c9e8d`](https://github.com/BenHuddart/gleplot/commit/69c9e8d00c09bbc57bf8e7ee9aebaa01b78d31f4))
+
+- Sharex/sharey honour matplotlib's 'all', 'none', 'row' and 'col'
+  ([`6719ae0`](https://github.com/BenHuddart/gleplot/commit/6719ae068aea228e48dd0a24f03365e0b1527063))
+
+- Stop reporting 'end sub' and 'end if' as an 'end' without a 'begin'
+  ([#189](https://github.com/BenHuddart/gleplot/pull/189),
+  [`d94363b`](https://github.com/BenHuddart/gleplot/commit/d94363bcfba3ac9dba20a4212e677c4a7dd7b31f))
+
+- Stroke a bar with no edge in the colour under it
+  ([`4611e51`](https://github.com/BenHuddart/gleplot/commit/4611e5105aaa222a35806f292099fedd50989e15))
+
+- Take a positional dict or None in set_xlabel's axis place as fontdict
+  ([`57f4de8`](https://github.com/BenHuddart/gleplot/commit/57f4de84291f1257eeb6c7115c57ab5d88d801c3))
+
+- Take a positional fontdict on the twin views' own label setters too
+  ([`b3f7317`](https://github.com/BenHuddart/gleplot/commit/b3f7317adc12a81db5acd9e8d76c51a9446abf3d))
+
+- Take colors=None as the default in contour and tricontour too
+  ([`2f03f9a`](https://github.com/BenHuddart/gleplot/commit/2f03f9a5c1a87d7f73a79431437f7383816ed096))
+
+- Take matplotlib's scalar, column and (2, N) forms in plot and errorbar
+  ([`27e1359`](https://github.com/BenHuddart/gleplot/commit/27e1359d1af7e5be8888ca34cf4a0753bcdbac41))
+
+- Treat a.dat and ./a.dat as one file when opening a GLE file
+  ([`e8c2b53`](https://github.com/BenHuddart/gleplot/commit/e8c2b53895e336a5db8b25c6cac51254a5ef45c7))
+
+- Treat markerfacecolor/mfc and drawstyle/ds conflicts like the other aliases
+  ([`981e6ab`](https://github.com/BenHuddart/gleplot/commit/981e6ab04bc428d23d8b305aa954fc398e7cd495))
+
+- Type the data-range edge check so mypy passes
+  ([#343](https://github.com/BenHuddart/gleplot/pull/343),
+  [`274a207`](https://github.com/BenHuddart/gleplot/commit/274a2075b54208d1bfd4314a0a0a362b17e602cd))
+
+- Warn about a 'none' bar face whose edge style is 'none' too
+  ([`f95c8f4`](https://github.com/BenHuddart/gleplot/commit/f95c8f45e100f00dc3a1cc9f8daa8a1938649595))
+
+- Warn at save when a data range leaves GLE nothing to draw
+  ([#343](https://github.com/BenHuddart/gleplot/pull/343),
+  [`bd040cd`](https://github.com/BenHuddart/gleplot/commit/bd040cdac6d790c502a37f32a3f3103ed08db94d))
+
+- Warn rather than raise or mis-route for three more inputs
+  ([`0843039`](https://github.com/BenHuddart/gleplot/commit/0843039c1cd044a2c95edaf20b7446ac769eef38))
+
+- Warn when a line has negative values on a log axis
+  ([`539518c`](https://github.com/BenHuddart/gleplot/commit/539518cfb856172ee89a4a2ca7e5638e451d6f8b))
+
+- Write a band's edges as its fill does; ftick and rugs on the axis
+  ([`bdbf367`](https://github.com/BenHuddart/gleplot/commit/bdbf367d06620071a10eafcb1e37a6796ce08ab5))
+
+- Write a bar's 'none' face as GLE's CLEAR fill
+  ([`96c82a4`](https://github.com/BenHuddart/gleplot/commit/96c82a465510272d234217967474a77d80a42720))
+
+- Write a lineless file reference through the one line path
+  ([`23205f6`](https://github.com/BenHuddart/gleplot/commit/23205f6017621361bca2a1734208775f4dfb730a))
+
+- Write a sidecar named two ways, such as a.dat and ./a.dat, once
+  ([`1eaafab`](https://github.com/BenHuddart/gleplot/commit/1eaafabfa95eef43b47b7b6ad5e0993a0d50b81c))
+
+- Write dropped points as missing in provider-backed sized scatters
+  ([`bc551d9`](https://github.com/BenHuddart/gleplot/commit/bc551d9b8673c6ee74a68c48345ce0916f7b0a3b))
+
+- Write gleplot's subs ahead of a kept raw sub that calls them
+  ([`3d2cb24`](https://github.com/BenHuddart/gleplot/commit/3d2cb243838da391b1942389fd09baad10735acb))
+
+- Write text holding a double quote in a form GLE compiles
+  ([`4681cd1`](https://github.com/BenHuddart/gleplot/commit/4681cd150a0d0bdc93d81848138353f8c83c8fd7))
+
+- Write the polar or image sub a raw GLE call still needs
+  ([`cd7302f`](https://github.com/BenHuddart/gleplot/commit/cd7302f865537dc560032b940837e4f96b7af26e))
+
+- Write two bars on one loaded sidecar back into that file
+  ([`f3b06cd`](https://github.com/BenHuddart/gleplot/commit/f3b06cd1618ef91a6387acc13a44b0771c56dfc2))
+
+- **colorbar**: Label the zero tick 0.0, not -0.0, when ticks cross zero
+  ([`a0301e3`](https://github.com/BenHuddart/gleplot/commit/a0301e39c478c8429ccd61039468c24a920262e9))
+
+- **parser**: Keep a .z colormap raw when a clause would not round-trip
+  ([`294c02b`](https://github.com/BenHuddart/gleplot/commit/294c02b4877ae66ec15b3ed4a8e9f6bce7a6567b))
+
+- **parser**: Keep a blank line after the last graph when an amove follows
+  ([`9d2064d`](https://github.com/BenHuddart/gleplot/commit/9d2064d804df55c886e96b9d46015ab4671aa7d1))
+
+- **parser**: Keep key hei/nobox when the key line has no pos
+  ([`7bad374`](https://github.com/BenHuddart/gleplot/commit/7bad374c7346b96b8956f32ae0143cb676f59f82))
+
+- **parser**: Keep the height on a combined 'set font X hei Y' line
+  ([`319edf7`](https://github.com/BenHuddart/gleplot/commit/319edf78556a395c8cd4cd01190efe0f86f8b7c7))
+
+- **parser**: No 'mixes datasets' note for columns nothing reads
+  ([`bca2e11`](https://github.com/BenHuddart/gleplot/commit/bca2e113baecda5011340c863690bdb314825957))
+
+- **parser**: Read back a begin key that lists function, derived or hist curves
+  ([`86df898`](https://github.com/BenHuddart/gleplot/commit/86df898261ca43513eb6ac3a2cd90bd1bbf6ee1f))
+
+- **parser**: Report a comment dropped from the commands after end graph
+  ([`47976e1`](https://github.com/BenHuddart/gleplot/commit/47976e1cd09dd458bd81471a1e0b8360bbdb9b9f))
+
+- **text**: Warn when a texcm font will draw text characters as other glyphs
+  ([`c861700`](https://github.com/BenHuddart/gleplot/commit/c86170072abf236f4db5f7b0f9b2132afbddd7d6))
+
+### Chores
+
+- Ignore throwaway .venv-* environments
+  ([`c888903`](https://github.com/BenHuddart/gleplot/commit/c888903b08ddd1210eca9a2bcac191c04d5a008a))
+
+### Code Style
+
+- Black the subplots example
+  ([`f0a422e`](https://github.com/BenHuddart/gleplot/commit/f0a422ed58107bf387b2f63038d706d2c9e250ee))
+
+- Format the #512 test
+  ([`a4d7601`](https://github.com/BenHuddart/gleplot/commit/a4d76010a4f1cd864afa9c189df6e5e6a262c5e7))
+
+- Format the #528 test
+  ([`955c142`](https://github.com/BenHuddart/gleplot/commit/955c1425d998db40457bfd187eadb841e5e80d24))
+
+### Continuous Integration
+
+- Install Windows Ghostscript from the pinned official installer
+  ([`a5c974b`](https://github.com/BenHuddart/gleplot/commit/a5c974bd4d2ca03c52344889a1a04e2f2d511fcd))
+
+- Pin Windows Ghostscript to 10.07.1 and log the install steps
+  ([`3d1ba22`](https://github.com/BenHuddart/gleplot/commit/3d1ba22588075101485badf0b2ce127b436e7061))
+
+- Unpack Windows Ghostscript with 7-Zip instead of installing it
+  ([`c8a8e55`](https://github.com/BenHuddart/gleplot/commit/c8a8e55d7464984270e4085a3e49aba76c1f264e))
+
+### Documentation
+
+- Add a 6.0 migration page and review the guides and README for 6.0
+  ([`fb0f767`](https://github.com/BenHuddart/gleplot/commit/fb0f76725f1ac8e9cd692ccc0ba37fbe08da73ed))
+
+- Add gallery examples for basic plot types without one
+  ([`bfd2362`](https://github.com/BenHuddart/gleplot/commit/bfd2362180272c3359da8c26912a416d83fa19f8))
+
+- Add gallery examples for figure-level and layout features
+  ([`06dd239`](https://github.com/BenHuddart/gleplot/commit/06dd2395d7c29d4c66de8d6551fa49f63493c80b))
+
+- Address review of AGENTS.md scope and release policy
+  ([`3bdd762`](https://github.com/BenHuddart/gleplot/commit/3bdd762b1297e734bb8c4769390bbddd22cff1a7))
+
+- Align the versioning guide, docs index and package metadata with the 6.0 plan
+  ([#349](https://github.com/BenHuddart/gleplot/pull/349),
+  [`d95537c`](https://github.com/BenHuddart/gleplot/commit/d95537c2d45b53fb89688f6d1e50b7b48d7573b4))
+
+- Correct captions and ranges in the new figure-level examples
+  ([`45d17ec`](https://github.com/BenHuddart/gleplot/commit/45d17ec6826a438c98518e5df12ab36963cbf25b))
+
+- Describe dN xmin/xmax/ymin/ymax as a data range, not a clip window
+  ([#329](https://github.com/BenHuddart/gleplot/pull/329),
+  [`5147c5b`](https://github.com/BenHuddart/gleplot/commit/5147c5b4a1ac626d0ec8e2cc8e4076125c96ba08))
+
+- Keep a wrapped '1.' from starting a list ([#391](https://github.com/BenHuddart/gleplot/pull/391),
+  [`90eb30a`](https://github.com/BenHuddart/gleplot/commit/90eb30a02ded27c133f8e0658410174b78b4dda4))
+
+- Load the gallery faster with sized, lossless WebP images
+  ([`111a56c`](https://github.com/BenHuddart/gleplot/commit/111a56cac1dfc8685404acfbaf52cb664cf98b62))
+
+- Name the axis an omitted range edge takes, and the tick-label effect
+  ([#329](https://github.com/BenHuddart/gleplot/pull/329),
+  [`b48f188`](https://github.com/BenHuddart/gleplot/commit/b48f1881af3601b65987e8c90291a7a2e3101163))
+
+- Name the guides that keep 6 figures
+  ([`4eb8576`](https://github.com/BenHuddart/gleplot/commit/4eb8576961b81ec7e523bd41a2e875dba5a1435e))
+
+- Note broken-axis segments and twin views in Figure.axes
+  ([#136](https://github.com/BenHuddart/gleplot/pull/136),
+  [`2ccc3ad`](https://github.com/BenHuddart/gleplot/commit/2ccc3ad9424bd13bd03e40c31101bac78d945ca7))
+
+- Record GLE-first scope and gathered-major release policy
+  ([`6297384`](https://github.com/BenHuddart/gleplot/commit/6297384248fc3071927273bf5d5ba9249a3a0519))
+
+- Require a gallery example for new plot types and features
+  ([`c041a2e`](https://github.com/BenHuddart/gleplot/commit/c041a2e95feb6ac42fd50154eae3c9db612fa8e1))
+
+- Review fixes for the reference-line alpha note
+  ([#391](https://github.com/BenHuddart/gleplot/pull/391),
+  [`f4616f7`](https://github.com/BenHuddart/gleplot/commit/f4616f7d1d2c838f5e1e490ce9ea180343a73cc0))
+
+- Review fixes for the versioning guide and package description
+  ([#349](https://github.com/BenHuddart/gleplot/pull/349),
+  [`cc14ce5`](https://github.com/BenHuddart/gleplot/commit/cc14ce5558673f2dad720a6e36091dd3540acc2e))
+
+- Say a contour line's unset colour and width write no keyword
+  ([`e68f0ed`](https://github.com/BenHuddart/gleplot/commit/e68f0ed9cec37c8771bea0933ff7b57169c7ebdc))
+
+- Say how the colour-mapped scatter's colours reach GLE
+  ([`04e1ecd`](https://github.com/BenHuddart/gleplot/commit/04e1ecd9f4505efdb551af19c9d4c0012d198997))
+
+- Say per-point colours with per-point sizes now warn and draw at one size
+  ([`a28d025`](https://github.com/BenHuddart/gleplot/commit/a28d0258507c4675b45881266223175d59f811f1))
+
+- Say that a labelled axes draws its legend without legend()
+  ([`c0997f3`](https://github.com/BenHuddart/gleplot/commit/c0997f335ac351d3980fefd9b8ee8301e2a1ff59))
+
+- Say what reference-line and span alpha do now
+  ([#391](https://github.com/BenHuddart/gleplot/pull/391),
+  [`cf7994c`](https://github.com/BenHuddart/gleplot/commit/cf7994c4069624b283ab8e8bfecaf46e86849c21))
+
+### Features
+
+- Accept one bar width per bar in bar() and barh()
+  ([`5460fec`](https://github.com/BenHuddart/gleplot/commit/5460fec6ef68a5aa53354e4eb69eed65d60a14f1))
+
+- Accept per-level linewidths/linestyles lists in contour and tricontour
+  ([`3d2d441`](https://github.com/BenHuddart/gleplot/commit/3d2d441462fbd4fef5032740279faeb68b98f7b3))
+
+- Add matplotlib's read-only Figure.axes list
+  ([#136](https://github.com/BenHuddart/gleplot/pull/136),
+  [`35ceed8`](https://github.com/BenHuddart/gleplot/commit/35ceed843c30d09b0247b18f1df101693e9f1097))
+
+- Axes.set_facecolor and add_axes(facecolor=) as GLE's graph background
+  ([#240](https://github.com/BenHuddart/gleplot/pull/240),
+  [`eef4225`](https://github.com/BenHuddart/gleplot/commit/eef422523c0684004e4f75acfbe660dd57de1912))
+
+- Close() accepts 'all', as matplotlib's pyplot.close
+  ([`b6a4204`](https://github.com/BenHuddart/gleplot/commit/b6a4204094c9689485926ced9e52e85d651ddfd1))
+
+- Draw a bar with no edge unless one is asked for
+  ([`90d5007`](https://github.com/BenHuddart/gleplot/commit/90d50075549677fe5d5f37fc86ad5ef627efde4a))
+
+- Draw colorbars with GLE's color.gle
+  ([`74aeb9c`](https://github.com/BenHuddart/gleplot/commit/74aeb9c9d08df6aa3f3c5bc890a18210932b3015))
+
+- Draw colormaps with GLE's palettes.gle and color.gle
+  ([`fb6e341`](https://github.com/BenHuddart/gleplot/commit/fb6e341b0632d64ac712424c38263a5139c8b5ac))
+
+- Draw engine-range guides with GLE's graphutil.gle after the graph
+  ([`2e0a7ac`](https://github.com/BenHuddart/gleplot/commit/2e0a7ac3620db4c40d1895ba9582194bd3591a8c))
+
+- Draw rugs with GLE's rugs.gle
+  ([`b19a533`](https://github.com/BenHuddart/gleplot/commit/b19a533feecf2dacc19fd66a0e8dd993b02b6764))
+
+- Draw the ColorBrewer colormaps with GLE's brewer.gle
+  ([`4e0ad67`](https://github.com/BenHuddart/gleplot/commit/4e0ad67cac7de670415e7e2f5d93511112a09abe))
+
+- Drop gleplot 5 file compatibility; name generated subs glp_
+  ([`d60ae54`](https://github.com/BenHuddart/gleplot/commit/d60ae54b10fc4b8e2ee70fda1a12a1c216e20e66))
+
+- Errorbar_from_file takes the data range xmin..ymax
+  ([#343](https://github.com/BenHuddart/gleplot/pull/343),
+  [`f969121`](https://github.com/BenHuddart/gleplot/commit/f969121a7e0cfc76e8b1c617856720a298a61550))
+
+- Give bar matplotlib's positional order, bar(x, height, width, bottom)
+  ([`237d531`](https://github.com/BenHuddart/gleplot/commit/237d5318b5f2a5739884392bd260ca09ea1a849c))
+
+- Give each axes matplotlib's C0-C9 colour cycle
+  ([`8c2e374`](https://github.com/BenHuddart/gleplot/commit/8c2e3744b43da0ab07676b8827fa1774408f1e86))
+
+- Give errorbar the dN xmin/xmax/ymin/ymax data range
+  ([#168](https://github.com/BenHuddart/gleplot/pull/168),
+  [`d4247c1`](https://github.com/BenHuddart/gleplot/commit/d4247c1e895835a3406150aebe3bee378f02e2d9))
+
+- Give scatter matplotlib's positional order, scatter(x, y, s, c)
+  ([`f02b57d`](https://github.com/BenHuddart/gleplot/commit/f02b57dda61bacae6b66adad63c431fe5f09d640))
+
+- Keep the colour cycle in to_dict and count it once per call on load
+  ([`f97d886`](https://github.com/BenHuddart/gleplot/commit/f97d8863475fd3dff8b6106ffd1e176f2d16ed54))
+
+- Name GLE's own words in the error-bar qualifier note
+  ([#168](https://github.com/BenHuddart/gleplot/pull/168),
+  [`b97e30d`](https://github.com/BenHuddart/gleplot/commit/b97e30de574223598b186e6fd5356ef39ca661c4))
+
+- Name the new order when a colour lands in scatter's s, and check scalar sizes
+  ([`cc8416d`](https://github.com/BenHuddart/gleplot/commit/cc8416df5dba215d296236d84d73c9f7973f3eb8))
+
+- Pass text keywords through glp and Figure label and title wrappers
+  ([`420ed3f`](https://github.com/BenHuddart/gleplot/commit/420ed3ffe905a08da0f7b597eff778e93bdd1561))
+
+- Reject an x2 title on a broken x-axis and name the gap to set
+  ([`3c99bde`](https://github.com/BenHuddart/gleplot/commit/3c99bdeab56a7efee31e6bec40472bc34071d7b5))
+
+- Remove BrokenAxes
+  ([`bbef0e6`](https://github.com/BenHuddart/gleplot/commit/bbef0e685e1e002a0eed1efd0523b15f1dc2b091))
+
+- Remove GLEWriter's deprecated per-field keyword methods
+  ([#100](https://github.com/BenHuddart/gleplot/pull/100),
+  [`5530b43`](https://github.com/BenHuddart/gleplot/commit/5530b437c870521be3d6c042076cbacc2207313c))
+
+- Remove pie and boxplot
+  ([`157e216`](https://github.com/BenHuddart/gleplot/commit/157e2162db3f0d1b48469ce38050fe9ea260c8aa))
+
+- Require GLE's include library and name a missing include
+  ([`e004eb9`](https://github.com/BenHuddart/gleplot/commit/e004eb9515b09228f933f8fa8cce3d5854fbb03e))
+
+- Review fixes for the axes facecolor ([#240](https://github.com/BenHuddart/gleplot/pull/240),
+  [`0222afa`](https://github.com/BenHuddart/gleplot/commit/0222afae759c60becabd35f63e05c75c6f765673))
+
+- Set_xlim/set_ylim return the new (low, high) limits
+  ([`56e913d`](https://github.com/BenHuddart/gleplot/commit/56e913d7906d4e34ad58cdf259ce6a5efa21881b))
+
+- Set_xlim/set_ylim take matplotlib's left/right and bottom/top
+  ([`4e16ed0`](https://github.com/BenHuddart/gleplot/commit/4e16ed01e4ab8fc4dc4070dc6e3761a2ac5a1857))
+
+- Subplots takes only nrows and ncols positionally, as matplotlib
+  ([`ed82a0f`](https://github.com/BenHuddart/gleplot/commit/ed82a0fba1a1cf9ad20dc04ecb2fce5ff891ded8))
+
+- Subplots takes subplot_kw, gridspec_kw and figure keywords
+  ([`5a3d495`](https://github.com/BenHuddart/gleplot/commit/5a3d495ecc936547055934f41133061cb5f2f753))
+
+- Subplots() returns matplotlib's numpy array of Axes, with squeeze
+  ([`0189fc4`](https://github.com/BenHuddart/gleplot/commit/0189fc46e007cdac93c22ba490095be6ed8df565))
+
+- Take fontdict on set_xlabel/set_ylabel and y on glp.title
+  ([`f0ffcf4`](https://github.com/BenHuddart/gleplot/commit/f0ffcf4082e8280399cceece8cad85ebc04b8857))
+
+- Take text keywords on the broken-axis title setters
+  ([`567a1fc`](https://github.com/BenHuddart/gleplot/commit/567a1fc844de5225cd2b8d958957cd15af19c0a7))
+
+- Warn only for differing per-level contour values; resolve them per keyword
+  ([`e8aacc8`](https://github.com/BenHuddart/gleplot/commit/e8aacc88df77d07ca508280665d0dd87cb3cc122))
+
+- Write a colorbar's label beside its color.gle bar
+  ([`dd6fabc`](https://github.com/BenHuddart/gleplot/commit/dd6fabcd254312ccbac1d821f167e9a6d7aa0774))
+
+- Write contour labels with GLE's contour.gle
+  ([`2400a27`](https://github.com/BenHuddart/gleplot/commit/2400a27a0dae5c2b4d135b776e7da436b51d92e3))
+
+### Refactoring
+
+- Drop the always-true legend.show test from the external-key branch
+  ([`b2b364d`](https://github.com/BenHuddart/gleplot/commit/b2b364de7503cef8b6024fd3e81f2473e4410db5))
+
+- Let legend_column_breaks own the one-column case
+  ([`ac51864`](https://github.com/BenHuddart/gleplot/commit/ac518646ba8f1a6f613651e9d9411ba528a19d69))
+
+- Share the line-mode/no-line check between plot and line_from_file
+  ([`2ff2d5f`](https://github.com/BenHuddart/gleplot/commit/2ff2d5fbcec051cacb21f0c60c31f583a16ef344))
+
+- State the line-mode rule without a writer detail that differs per caller
+  ([`b0a28c0`](https://github.com/BenHuddart/gleplot/commit/b0a28c0034d3b63bd1cbcb2e4a53afd375bfa3c1))
+
+### Testing
+
+- A lineless guide is linestyle 'none'/'None'/'', not None
+  ([`76d17fa`](https://github.com/BenHuddart/gleplot/commit/76d17fafc2e9bb604a1fadbdda7ec25aa1e12f25))
+
+- A lineless guide is linestyle 'none'/'None'/'', not None
+  ([`dba1aff`](https://github.com/BenHuddart/gleplot/commit/dba1aff8dd369d10cea8419ec5033e0a02eca8b3))
+
+- Cover a derived curve beside a histogram let
+  ([#344](https://github.com/BenHuddart/gleplot/pull/344),
+  [`cd77194`](https://github.com/BenHuddart/gleplot/commit/cd7719462e374f60a00233271b0e8ff39ced9933))
+
+- Cover twiny(delta_zorder=...) and type the twin keyword helper
+  ([`7004c5d`](https://github.com/BenHuddart/gleplot/commit/7004c5d8875e6f56c75cb5b1ced3ab34694e476d))
+
+- Do not create a quoted filename, which Windows forbids
+  ([`e68055a`](https://github.com/BenHuddart/gleplot/commit/e68055a62253a3bbfc0f5dd4ba55c92e9f94344e))
+
+- Drop a colorbar label the merged contourf builder passed
+  ([`26af435`](https://github.com/BenHuddart/gleplot/commit/26af43551c60efe38f1eabe8d898817b9bc51c43))
+
+- Expect the edgeless bar in the bar snapshots and digests
+  ([`650e19a`](https://github.com/BenHuddart/gleplot/commit/650e19a0dfa33b8cefa251800700d3da4fdd15dd))
+
+- Keep a gleplot 5 contour-label sub raw; refresh stale docstrings
+  ([`1cd06e3`](https://github.com/BenHuddart/gleplot/commit/1cd06e32c81caac2cd24b92bce393ffbcf1d02c0))
+
+- Keep heatmap fixtures within their grids
+  ([`89300d7`](https://github.com/BenHuddart/gleplot/commit/89300d73f6e666a81ba1e0b4a4ab1753318d4445))
+
+- Pin a lone comment between two subplots
+  ([`4addb49`](https://github.com/BenHuddart/gleplot/commit/4addb49372baaa53002871dd190cecc176a79a96))
+
+- Pin a raw line's err read of a renumbered error-bar dataset
+  ([`bf6c812`](https://github.com/BenHuddart/gleplot/commit/bf6c8125f2652883aa256cae28068345dee300aa))
+
+- Pin has_y2_plots counting a file series on y2
+  ([`620604a`](https://github.com/BenHuddart/gleplot/commit/620604a37d9d53191305876ca2d43c0c33681b44))
+
+- Pin that a raw function let keeps its dataset name
+  ([#171](https://github.com/BenHuddart/gleplot/pull/171),
+  [`240431d`](https://github.com/BenHuddart/gleplot/commit/240431d11ffa6b195f01bd433410c6c5381884be))
+
+- Pin that begin keys listing hist and function curves are read back
+  ([`e596341`](https://github.com/BenHuddart/gleplot/commit/e596341e6284641b03e4e52efaa94cfb07bccedf))
+
+- Pin that non-finite svg_smooth and lstyle keep the line raw
+  ([#167](https://github.com/BenHuddart/gleplot/pull/167),
+  [`52d15d4`](https://github.com/BenHuddart/gleplot/commit/52d15d4a1a274c843d2e6f00fb6a4c6374ab9b87))
+
+- Pin the fixed point for raw mdata naming a modelled dataset
+  ([`180180f`](https://github.com/BenHuddart/gleplot/commit/180180fffb8f495b28df7b7d54379d225a7d837a))
+
+- Point comments at the series entry points that replaced the wrappers
+  ([#100](https://github.com/BenHuddart/gleplot/pull/100),
+  [`7cb34c2`](https://github.com/BenHuddart/gleplot/commit/7cb34c2396878237ef5ffd8df3cd2b7fbfc6f21b))
+
+- Require a note for an after-graph guide near miss kept raw
+  ([`a0699ad`](https://github.com/BenHuddart/gleplot/commit/a0699ad561f75add07d742c9f3b68989009ef304))
+
+
 ## v5.6.3 (2026-11-19)
 
 ### Bug Fixes
