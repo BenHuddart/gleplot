@@ -32,12 +32,9 @@ itself. So the order above matters (set the global default, *then* create
 the figure), and the reverse is also true: once `fig = glp.figure()` has
 run, editing `fig.style.font` in place changes only `fig` -- it cannot leak
 into other figures, and it cannot write back into `GlobalConfig.style`
-either. (This is the fix for a real bug in earlier gleplot releases, where
-`fig.style` for a default-styled figure *was* `GlobalConfig.style` itself,
-so an in-place edit on one figure silently changed every other
-default-styled figure in the process.) An explicit `style=`/`graph=`/
+either. An explicit `style=`/`graph=`/
 `marker=` object you construct and pass in yourself is unaffected by this --
-it is still stored by reference, as it always was.
+it is stored by reference.
 
 ## Style Configuration (GLEStyleConfig)
 
@@ -198,19 +195,6 @@ smoothing option, by setting two fields on the series itself:
 Both are limited to `plot()` line series. Error bars and `line_from_file`
 series still follow the figure-wide flag.
 
-> **Behaviour change in 1.9.0.** Before 1.9.0, `smooth_curves` defaulted to
-> **`True`**: every line gleplot drew was a spline through the data, and no
-> figure showed the measured polyline unless its author had found the flag and
-> turned it off. Figures regenerated with 1.9.0 render as polylines --
-> visibly more angular between sparse points, with no overshoot past local
-> maxima. **That is the correct rendering.** If a curve now looks jagged, the
-> jaggedness is in the data and was previously being hidden.
->
-> To reproduce a pre-1.9.0 figure exactly, ask for smoothing explicitly:
-> `glp.figure(graph=glp.GLEGraphConfig(smooth_curves=True))`, or one
-> `glp.GlobalConfig.graph.smooth_curves = True` at the top of the script to
-> restore the old behaviour everywhere in it.
-
 #### Point order
 
 A series is drawn, and written to its `.dat` file, in the order you passed its
@@ -233,15 +217,6 @@ that reason; leave `smooth_curves` off for one, which is the default.
 Sorting never applies to a series that draws no line (`scatter`), to
 `fill_between`, or to `line_from_file`/`errorbar_from_file` (which reference
 your file's rows and write nothing).
-
-> **Behaviour change in 1.9.0.** Before 1.9.0, `plot()` and `errorbar()`
-> sorted their points by ascending x before writing the data file -- a habit
-> left over from when smoothing was on by default. Any series with
-> non-monotonic x was silently reordered, both on screen and on disk. Figures
-> regenerated with 1.9.0 draw the points in the order they were given; a loop
-> that previously came out torn into two overlapping arcs now closes. If a
-> figure depended on the old ordering, sort before plotting:
-> `order = np.argsort(x); ax.plot(x[order], y[order])`.
 
 #### Draw order (`zorder`)
 

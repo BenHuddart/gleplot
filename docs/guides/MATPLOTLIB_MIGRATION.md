@@ -1,6 +1,12 @@
 # Matplotlib Migration Guide
 
-gleplot intentionally mirrors the matplotlib style for core plotting tasks.
+gleplot writes standard GLE through matplotlib's names where they map
+cleanly: a matplotlib function keeps matplotlib's parameter names, order and
+defaults. Where GLE has no command for what a keyword asks, gleplot does not
+emulate it: it accepts the keyword, warns, and this page lists the gap. An
+unknown keyword name warns the same way. An argument value gleplot cannot
+use, such as an unknown colour or a NaN line width, raises `ValueError` or
+`TypeError` when the call is made.
 
 ## Quick Mapping
 
@@ -291,12 +297,10 @@ no markers even when `marker=` is given.
 
 `errorbar`'s `yerr` and `xerr` take matplotlib's shapes: a scalar, `N` values
 (one symmetric error per point), or shape `(2, N)` (a lower row and an upper
-row, such as a `(lower, upper)` tuple). gleplot used to read every
-two-element sequence as `(lower, upper)`: `yerr=[0.1, 0.2]` on two points drew 0.1
-below and 0.2 above both, and on any other number of points it was spread
-over every point. It is now one error per point on two points, as in
-matplotlib, and raises `ValueError` on any other number of points; pass
-`yerr=([0.1] * N, [0.2] * N)` for the old drawing.
+row, such as a `(lower, upper)` tuple). A two-element `yerr=[0.1, 0.2]` is
+one error per point on two points, as in matplotlib, and raises `ValueError`
+on any other number of points; pass `yerr=([0.1] * N, [0.2] * N)` for a
+lower and an upper error on every point.
 
 ## Marker spacing, thinning and data ranges
 
@@ -425,18 +429,14 @@ Two matplotlib calls with shifted x are two commands. GLE's side-by-side group `
 
 GLE has no pie chart or box plot command, and gleplot does not build one out
 of subroutines, so `pie` and `boxplot` are not provided: calling them raises
-`AttributeError`, as for any other matplotlib name gleplot lacks. Earlier
-versions drew them with gleplot's own `gleplot_wedge` and `gleplot_box`
-subroutines. A `.gle` file written with them still opens and compiles: the
-subroutines and their calls are kept as raw GLE, with a note.
+`AttributeError`, as for any other matplotlib name gleplot lacks.
 
-GLE has no broken axis either, so `Figure.add_broken_xaxes`,
-`add_broken_yaxes` and `BrokenAxes` are gone. A logarithmic axis shows two
-scales in one panel, and two subplots show two ranges. A `.gle` file an
-earlier version wrote with a broken axis opens as its separate graphs, with
-the seam marks and shared titles kept as raw GLE. A project saved with one
-loads its segments as separate axes drawn over each other in its place, with
-a warning.
+GLE has no broken axis either, so gleplot has none. A logarithmic axis shows
+two scales in one panel, and two subplots show two ranges.
+
+gleplot 5 drew all three with its own subroutines. How its files and
+snapshots open now is in "Files written by gleplot 5" in
+[Migrating from gleplot 5 to 6](MIGRATING_TO_6.md).
 
 ## Colorbars
 
@@ -557,7 +557,7 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
 
 1. Primary output model is GLE script generation.
 2. Saving to `.gle` always works without external compiler.
-3. Saving to `.pdf`, `.png`, `.eps` requires a working GLE installation.
+3. Saving to `.pdf`, `.png`, `.eps`, `.svg` or `.jpg` requires GLE and its include library (`gleinc`).
 4. Sidecar `.dat` files are generated for in-memory series unless file-based series methods are used.
 5. `ax.grid(visible, which=, axis=, color=, linestyle=, linewidth=)` maps to
    GLE's `xaxis grid` (+ `xsubticks on` for `which='both'`). A minor-only
