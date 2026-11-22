@@ -299,11 +299,18 @@ def _contourf_file(tmp_path, comment, marker, options=""):
 
 
 def test_contourf_without_its_marker_takes_its_edges_from_the_header(tmp_path):
-    rec = _contourf_file(
-        tmp_path, "! gleplot: contourf cmap viridis extend neither levels 0 1 2", ""
-    )
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 1, 31)
+    ax.contourf(x, x, np.add.outer(x, x), [0.2, 0.7, 1.3])
+    path = _save(fig, tmp_path)
+    grid = tmp_path / "g_heatmap1.z"
+    lines = grid.read_text(encoding="utf-8").splitlines(keepends=True)
+    assert lines[1].startswith("! gleplot: nodes ")
+    grid.write_text("".join(lines[:1] + lines[2:]), encoding="utf-8")
+    rec = parse_gle_figure(path)
     hm = rec.figure.axes_list[0].heatmaps[0]
-    assert hm["extent"] == [0.0, 1.0, 0.0, 1.0]
+    assert hm["extent"] == pytest.approx([0.0, 1.0, 0.0, 1.0])
     assert any("no marker line giving its edges" in w for w in rec.warnings)
 
 
@@ -1111,3 +1118,56 @@ def test_a_band_sub_kept_raw_keeps_its_name(tmp_path):
     assert again.count("palette glp_contourf1") == 1
     assert again.count("palette glp_contourf2") == 1
     assert _resave(tmp_path, again) == again
+
+
+def test_an_edited_band_sub_is_kept_with_its_colormap(tmp_path):
+    """#551: a band sub whose body was edited is not regenerated over."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 1, 31)
+    ax.contourf(x, x, np.add.outer(x, x), [0.2, 0.7, 1.3])
+    path = _save(fig, tmp_path)
+    old = "   if z < 0.2 then return rgb(1, 1, 1)"
+    text = path.read_text(encoding="utf-8")
+    assert old in text.splitlines()
+    text = text.replace(old, "   if z < 0.2 then return rgb(0, 0, 0)")
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path)
+    ax = rec.figure.axes_list[0]
+    assert not ax.heatmaps
+    assert any("palette glp_contourf1" in line for line in ax.passthrough)
+    notes = [w for w in rec.warnings if "glp_contourf1" in w]
+    assert len(notes) == 1
+    assert "'glp_contourf1' is not the sub gleplot writes" in notes[0]
+    again = rec.figure._generate_gle_with_files()[0]
+    assert "   if z < 0.2 then return rgb(0, 0, 0)" in again.splitlines()
+    assert again.count("sub glp_contourf1 z") == 1
+    assert _resave(tmp_path, again) == again
+
+
+def test_a_band_sub_is_read_in_the_form_its_pixels_now_pick(tmp_path):
+    """Fewer pixels make a smooth contourf draw bands: that is no edit."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 3, 7)
+    with pytest.warns(UserWarning, match="smooth heatmap"):
+        ax.contourf(x, x, np.sin(np.add.outer(x, x)), [-0.9, -0.3, 0.2, 0.8])
+    path = _save(fig, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert "local t" not in text
+    path.write_text(text.replace(" 200 200 zmin", " 20 20 zmin"), encoding="utf-8")
+    rec = parse_gle_figure(path)
+    assert rec.warnings == []
+    (hm,) = rec.figure.axes_list[0].heatmaps
+    assert hm["pixels"] == [20, 20]
+    assert "local t" in rec.figure._generate_gle_with_files()[0]
+
+
+def test_a_band_sub_with_no_range_to_colour_is_kept_raw(tmp_path):
+    rec = _contourf_file(
+        tmp_path,
+        "! gleplot: contourf cmap viridis extend neither vmax 0 levels 0 1 2",
+        "! gleplot: nodes xmin 0 xmax 1 ymin 0 ymax 1\n",
+    )
+    assert not rec.figure.axes_list[0].heatmaps
+    assert any("unknown palette 'glp_contourf1'" in w for w in rec.warnings)
