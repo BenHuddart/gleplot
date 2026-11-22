@@ -99,20 +99,17 @@ git push origin main --follow-tags
 
 ## Publishing to PyPI
 
-Each release attaches the sdist and wheel to its GitHub Release. Upload to
-PyPI is off until a maintainer enables it:
+Each release attaches the sdist and wheel to its GitHub Release, and the
+**Publish to PyPI** job uploads the same files to
+[PyPI](https://pypi.org/project/gleplot/). It runs in the GitHub
+**Environment** `pypi`, which waits for a maintainer to approve the upload:
+open the Release run under **Actions** and choose **Review deployments**.
 
-1. Register the gleplot project on PyPI. The workflow uploads to PyPI only,
-   not TestPyPI.
-2. Add a **Trusted Publisher** on PyPI for this repository, workflow file
-   `release.yml`, environment `pypi`.
-3. Create a GitHub **Environment** named `pypi` (approval rules are
-   recommended).
-4. Set the repository variable `PYPI_PUBLISH` to `true`.
-
-The **Publish to PyPI** job authenticates through OIDC
-(`pypa/gh-action-pypi-publish`), so no long-lived API token is stored in the
-repository.
+The job authenticates through OIDC as a PyPI **Trusted Publisher**
+(`pypa/gh-action-pypi-publish`, workflow file `release.yml`, environment
+`pypi`), so no long-lived API token is stored in the repository. It runs only
+while the repository variable `PYPI_PUBLISH` is `true`; set it to anything
+else to keep releases on GitHub only.
 
 To check a build locally:
 
