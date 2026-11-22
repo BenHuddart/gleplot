@@ -707,6 +707,44 @@ def _bar_baseline(bottom, n: int):
     return flat
 
 
+def _bar_widths(
+    width, n: int, caller: str, thickness: str, order: str
+) -> List[Optional[float]]:
+    """One thickness per bar, as matplotlib broadcasts ``width``.
+
+    ``None`` is the engine's derivation for every bar. A sequence of one
+    broadcasts; any other length must match the bars.
+    """
+    if width is None:
+        return [None] * n
+    arr = None
+    if not isinstance(width, str):
+        try:
+            arr = np.asarray(width, dtype=float)
+        except (TypeError, ValueError):
+            pass
+    if arr is None or arr.ndim > 1:
+        raise TypeError(
+            f"{caller}() {thickness} must be a number or one per bar, the bar "
+            f"thickness in data units, got {width!r}. As in matplotlib, "
+            f"{caller}'s positional arguments are {order}; pass a colour as "
+            f"color= and the thickness as {thickness}=."
+        )
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(f"{caller}() {thickness} must be finite, got {width!r}")
+    if arr.ndim == 1 and arr.size not in (1, n):
+        raise ValueError(
+            f"{caller}() {thickness} has {arr.size} values for {n} bars, got "
+            f"{width!r}; pass one number, or one per bar (a colour goes in "
+            "color=)."
+        )
+    if arr.ndim == 0 or arr.size == 1 or np.all(arr == arr[0]):
+        return [float(arr.ravel()[0])] * n
+    # GLE reads ``width 0`` as "not given". Among differing widths, a zero
+    # is left for the caller to fill with the width the set would derive.
+    return [float(value) if value != 0 else None for value in arr]
+
+
 def _bar_edge_style(linewidth, linestyle) -> dict:
     """Scalar edge width and linestyle. A sequence warns and keeps the first."""
     result: Dict[str, Any] = {}
@@ -5286,7 +5324,7 @@ class Axes:
         self,
         x,
         height,
-        width: Optional[float] = None,
+        width=None,
         bottom=None,
         *,
         align: str = "center",
@@ -5326,16 +5364,19 @@ class Axes:
             Bar positions.
         height : array-like
             Bar lengths. With ``bottom``, the top is ``bottom + height``.
-        width : float, optional
+        width : float or array-like, optional
             Bar thickness in DATA units (G19), GLE's ``bar dN ... width w``.
             The default, ``None``, is the engine's own behaviour and
             gleplot's historical one: GLE sizes the set from the data,
             taking half the smallest gap between consecutive x values.
             Deliberately *not* matplotlib's constant ``0.8`` default -- every
             bar chart written before this parameter existed must keep
-            emitting the script it emits now. One number for every bar: a
-            string or sequence raises ``TypeError``, so pass a colour as
-            ``color=``.
+            emitting the script it emits now. A sequence gives one width
+            per bar (a sequence of one broadcasts); as GLE has one width
+            per dataset, differing widths split the call like a colour
+            sequence. ``0`` is GLE's "no width given": that bar takes the
+            width GLE derives. A string raises ``TypeError``, so pass a
+            colour as ``color=``.
         bottom : float or array-like, optional
             Baseline. ``0`` (matplotlib's default) draws from zero and is
             not written. An array must have one value per bar.
@@ -5406,13 +5447,6 @@ class Axes:
             if horiz
             else ("bar", "(x, height, width, bottom)", "width", "bottom")
         )
-        if width is not None and (isinstance(width, str) or np.ndim(width) != 0):
-            raise TypeError(
-                f"{caller}() {thickness} must be one number, the bar thickness "
-                f"in data units, got {width!r}. As in matplotlib, {caller}'s "
-                f"positional arguments are {order}; pass a colour as color= "
-                f"and the thickness as {thickness}=."
-            )
         if isinstance(bottom, str):
             raise TypeError(
                 f"{caller}() {base} must be a number or one per bar, got "
@@ -5470,6 +5504,7 @@ class Axes:
         n = int(x.size)
         if n == 0:
             raise ValueError("bar() needs at least one bar")
+        widths = _bar_widths(width, n, caller, thickness, order)
 
         default_face = None
         if color is None:
@@ -5551,10 +5586,11 @@ class Axes:
         if color is None:
             self._next_color("patches")
 
-        # One dataset, one face and one edge. Differing colours are separate
-        # series so each bar is a ``bar dN`` at its own x. Uniform colours
-        # stay one series: that is every bar chart gleplot has ever written.
-        vary = len(set(zip(fills, edges, patterns, backgrounds))) > 1
+        # One dataset, one face, one edge and one ``width``. Differing
+        # colours or widths are separate series so each bar is a ``bar dN``
+        # at its own x. Uniform ones stay one series: that is every bar
+        # chart gleplot has ever written.
+        vary = len(set(zip(fills, edges, patterns, backgrounds, widths))) > 1
         if not vary:
             self._append_bar(
                 x,
@@ -5562,7 +5598,7 @@ class Axes:
                 fills,
                 label,
                 data_name,
-                width,
+                widths[0],
                 zorder,
                 baseline,
                 edges[0],
@@ -5574,9 +5610,8 @@ class Axes:
         else:
             # A one-point dataset has no gap for GLE to measure, so each piece
             # carries the thickness the combined set would have been given.
-            piece_width = width
-            if piece_width is None:
-                piece_width = _bar_width_for_split(x)
+            split_width = _bar_width_for_split(x)
+            widths = [split_width if value is None else value for value in widths]
             for index in range(n):
                 self._append_bar(
                     x[index : index + 1],
@@ -5584,7 +5619,7 @@ class Axes:
                     [fills[index]],
                     label if index == 0 else None,
                     data_name if index == 0 else None,
-                    piece_width,
+                    widths[index],
                     zorder,
                     None if baseline is None else baseline[index : index + 1],
                     edges[index],
@@ -5614,7 +5649,7 @@ class Axes:
         self,
         y,
         width,
-        height: Optional[float] = None,
+        height=None,
         left=None,
         *,
         align: str = "center",
@@ -5623,7 +5658,8 @@ class Axes:
         """Horizontal bars. See :meth:`bar`.
 
         ``width`` is the bar length (matplotlib's second positional) and
-        ``height`` is the thickness. Thickness defaults to GLE's own
+        ``height`` is the thickness: one number, or one per bar, as
+        :meth:`bar`'s ``width``. Thickness defaults to GLE's own
         derivation, the same as :meth:`bar`'s ``width``, not matplotlib's
         ``0.8``. ``left`` is the baseline (``bar``'s ``bottom``). ``xerr``
         and ``yerr`` are the same errors as :meth:`bar`: ``xerr`` runs
