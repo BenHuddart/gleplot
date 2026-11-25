@@ -26,6 +26,7 @@ from .cairo_support import (
     cairo_font_warning,
     drawn_font,
     figure_requires_cairo,
+    script_requires_cairo,
     text_glyph_warning,
 )
 from .colors import _gle_color, _is_none_color, _rgba_parts, apply_alpha, rgb_to_gle
@@ -507,6 +508,11 @@ def _make_polar(ax: Axes) -> None:
     ax._frame_off = True
     ax._show_xticks = ax._show_yticks = False
     ax.xgrid = ax.ygrid = None
+
+
+def _frame_color(ax: "Axes") -> Optional[str]:
+    """The colour ``ax`` fills its frame with, None when it draws none."""
+    return None if ax._frame_off else ax._facecolor
 
 
 def _axes_options(
@@ -2900,7 +2906,9 @@ class Figure:
                     "PostScript font is drawn. Save as PDF or EPS to compile "
                     "without Cairo."
                 )
-            effective_cairo = svg or (self.requires_cairo() if cairo is None else cairo)
+            effective_cairo = svg or (
+                self._requires_cairo(gle_content) if cairo is None else cairo
+            )
             if svg:
                 why = "SVG output is drawn by GLE's Cairo device"
             elif cairo is None:
@@ -3016,7 +3024,7 @@ class Figure:
             includes ``dpi`` and ``import-data`` (per that function's
             ALWAYS_EMIT contract); ``sharex``/``sharey``/``msize_scale`` and
             the style's ``default_linewidth``/``default_color``/
-            ``default_marker_color`` are included too but only rendered by
+            ``default_marker_color``/``opaque_backdrop`` are included too but only rendered by
             ``emit_metadata`` when they differ from the documented defaults. Any ``metadata_extra`` keys
             recovered from a parsed file are passed through verbatim.
         """
@@ -3034,13 +3042,14 @@ class Figure:
             # vouched for as such -- excluded from ``import-data``.
             "import-data": sorted(k for k in data_files.keys() if k not in raw),
         }
-        # A default colour is recorded as the GLE colour it draws; None, the
-        # colour cycle, is the default and is not recorded. Its warnings
+        # A default colour, and the backdrop, is recorded as the GLE colour it
+        # draws; None, the colour cycle or kept alpha, is the default and is
+        # not recorded. Its warnings
         # (extra values, 'none') were given when a series used it; a save
         # does not repeat them.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            for key in ("default_color", "default_marker_color"):
+            for key in ("default_color", "default_marker_color", "opaque_backdrop"):
                 value = getattr(self.style, key)
                 if value is not None:
                     data[key] = rgb_to_gle(_rgba_parts(value)[0])
@@ -3161,6 +3170,7 @@ class Figure:
                 ax = self.axes_list[0]
                 self._resolve_axis_limits(ax, resolution)
 
+                start = len(writer.lines_gle)
                 self._emit_pre_graph_blocks(writer, ax, resolution)
                 # Explicit placement (SPEC 3.3, metadata v2): the frame rect is
                 # realized as 'amove x y' + 'size w h' + 'scale 1 1'. This is
@@ -3197,6 +3207,7 @@ class Figure:
                 self._write_axes_content(writer, ax, resolution, frame)
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax, resolution)
+                writer.flatten_alpha(start, _frame_color(ax))
             else:
                 # No axes at all: there is nothing to place, so the historical
                 # empty block stands. (A figure with passthrough took the
@@ -3249,6 +3260,7 @@ class Figure:
                     ax, ax.placement if ax.placement is not None else rect
                 )
 
+                start = len(writer.lines_gle)
                 self._emit_pre_graph_blocks(writer, ax, resolution)
                 writer.add_amove(x_pos, y_pos)
                 writer.begin_graph()
@@ -3265,6 +3277,7 @@ class Figure:
 
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax, resolution)
+                writer.flatten_alpha(start, _frame_color(ax))
                 trailing = (
                     ax.trailing_passthrough if ax is not self.axes_list[-1] else []
                 )
@@ -3277,6 +3290,20 @@ class Figure:
             self._write_page_content(writer, resolution)
             writer.finalize(
                 include_graph_end=False, passthrough_trailer=self._trailer_lines()
+            )
+
+        # What the graphs leave, and the page around them, is over the
+        # figure's own backdrop.
+        writer.flatten_alpha(0)
+        if writer.opaque_conversions:
+            warn_external(
+                f"GLEStyleConfig(opaque_backdrop={self.style.opaque_backdrop!r}) "
+                "drew the figure's translucent colours as the opaque colours "
+                "they look like over that backdrop, so a PDF or "
+                "EPS compiles without GLE's -cairo device. Where two translucent "
+                "fills overlap, the one drawn later now hides the other instead "
+                "of mixing with it. Set opaque_backdrop=None to keep "
+                "transparency."
             )
 
         # Provider-table sidecars are only complete once every series that
@@ -3662,7 +3689,8 @@ class Figure:
         """Labelled series in emission order, each with its key swatch.
 
         The order is the one ``_write_axes_content`` draws: engine-range
-        spans, plain fills, dataset-form spans, engine-range reflines,
+        spans, plain fills, dataset-form spans (before the fills under
+        ``opaque_backdrop``), engine-range reflines,
         dataset-form reflines, z-ordered bars/lines/scatters/errorbars,
         then file series, then derived curves. Hidden and dangling series
         are already dropped.
@@ -3690,16 +3718,18 @@ class Figure:
                 span["color"], span.get("alpha", 1.0)
             )
             add(span, writer.legend_swatch(span["color"], fill=token))
-        for series, fill in resolution.pairs(ax.fills):
-            token = fill.get("swatch_color") or apply_alpha(
-                fill["color"], fill.get("alpha", 1.0)
+        # As _write_fills orders them: dataset-form spans before the fills
+        # under opaque_backdrop.
+        fills = [(series, fill) for series, fill in resolution.pairs(ax.fills)]
+        spans = [(span, span) for span in ax.dataset_form_guides(ax.spans, limits)]
+        bands = (
+            spans + fills if writer.style.opaque_backdrop is not None else fills + spans
+        )
+        for series, band in bands:
+            token = band.get("swatch_color") or apply_alpha(
+                band["color"], band.get("alpha", 1.0)
             )
-            add(series, writer.legend_swatch(fill["color"], fill=token))
-        for span in ax.dataset_form_guides(ax.spans, limits):
-            token = span.get("swatch_color") or apply_alpha(
-                span["color"], span.get("alpha", 1.0)
-            )
-            add(span, writer.legend_swatch(span["color"], fill=token))
+            add(series, writer.legend_swatch(band["color"], fill=token))
         for ref in ax.engine_range_guides(ax.reflines, limits):
             add(
                 ref,
@@ -4272,7 +4302,9 @@ class Figure:
 
         The bands are declarations until the axis limits are known, and they
         belong in the same background layer as fills so the data series
-        always draw on top of their guides.
+        always draw on top of their guides. Under ``opaque_backdrop`` the
+        bands come first: drawn opaque after the fills, a band would hide
+        every fill it crosses.
         """
         # The declarations behind the materialized bands, in the same order
         # (see Axes.dataset_form_guides), so each fill can be preceded by the
@@ -4284,11 +4316,16 @@ class Figure:
                 "materialize_spans and dataset_form_guides disagree: "
                 f"{len(span_fills)} vs {len(span_sources)}"
             )
+        spans_first = writer.style.opaque_backdrop is not None
+        # A materialized band is built after resolution, so it has no binding.
+        if spans_first:
+            for source, span_fill in zip(span_sources, span_fills):
+                writer.add_span_dataset(source, span_fill)
         for fill_series, fill_data in resolution.pairs(ax.fills):
             writer.add_fill(fill_data, binding=resolution.binding(fill_series))
-        # A materialized band is built after resolution, so it has no binding.
-        for source, span_fill in zip(span_sources, span_fills):
-            writer.add_span_dataset(source, span_fill)
+        if not spans_first:
+            for source, span_fill in zip(span_sources, span_fills):
+                writer.add_span_dataset(source, span_fill)
 
     @staticmethod
     def _write_reflines(writer: GLEWriter, ax: Axes, limits) -> None:
@@ -5621,11 +5658,32 @@ class Figure:
         coordinates are only materialized later, at write time
         (:meth:`Axes.materialize_spans`).
 
+        With ``GLEStyleConfig.opaque_backdrop`` set, the answer is whether
+        the script that figure writes still draws a translucent colour: a
+        span drawn after the graph, or an RGBA colour gleplot cannot mix.
+
         Returns
         -------
         bool
         """
-        return figure_requires_cairo(self.to_dict())
+        return self._requires_cairo()
+
+    def _requires_cairo(self, script: Optional[str] = None) -> bool:
+        """:meth:`requires_cairo`, given the ``script`` this figure just
+        wrote, if any, so it is not written again."""
+        if self.style.opaque_backdrop is None:
+            return figure_requires_cairo(self.to_dict())
+        if script is None:
+            # Written only to be read: the save that follows reports what
+            # writing it warns about.
+            kept = (self._source_warnings, self._preview_decimation_report)
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    script = self._generate_gle()
+            finally:
+                self._source_warnings, self._preview_decimation_report = kept
+        return script_requires_cairo(script)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Figure":

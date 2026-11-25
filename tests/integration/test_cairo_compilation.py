@@ -8,6 +8,10 @@ Everything that doesn't need a real ``gle`` binary lives in
 
 from __future__ import annotations
 
+import re
+import warnings
+from unittest import mock
+
 import numpy as np
 import pytest
 
@@ -135,3 +139,84 @@ def test_svg_draws_text_in_the_default_font(tmp_path):
         return out.read_text(encoding="utf-8").count("<path")
 
     assert paths("A title in the default font", "titled") > paths("", "plain")
+
+
+# --------------------------------------------------------------------------- #
+# GLEStyleConfig(opaque_backdrop=...): native output, GLE's default font
+# --------------------------------------------------------------------------- #
+
+#: EPS colour operands of the inks below, as GLE writes them.
+_RED_BAND = "1 0.498039 0.498039 setrgbcolor"  # 50% red over white
+_BLUE_BAND = "0.498039 0.498039 1 setrgbcolor"  # 50% blue over white
+_GREEN_SPAN = "0.701961 0.85098 0.701961 setrgbcolor"  # 30% green over white
+_LINE = "0.0705882 0.203922 0.337255 setrgbcolor"  # #123456
+_POINTS = "0.396078 0.262745 0.129412 setrgbcolor"  # #654321
+
+
+def _opaque_figure(tmp_path, bands, log=False):
+    """Bands, a span across the observations, file-backed points with error
+    bars, a line on a twin axis and a label GLE's Cairo font misdraws."""
+    (tmp_path / "obs.dat").write_text("1 2 0.3\n2 3 0.3\n3 2.5 0.3\n4 3.5 0.3\n")
+    fig = glp.figure(
+        style=glp.GLEStyleConfig(opaque_backdrop="white"), data_prefix="opaque"
+    )
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 5, 11)
+    for color in bands:
+        ax.fill_between(x, x * 0 + 1, x * 0 + 4, color=color, alpha=0.5, label=color)
+    ax.axvspan(1.5, 2.5, color="green", alpha=0.3, label="phase")
+    ax.errorbar_from_file("obs.dat", 1, 2, 3, color="#654321", label="obs")
+    ax.set_xlim(0, 5)
+    ax.set_ylim(0.5, 5)
+    if log:
+        ax.set_yscale("log")
+    twin = ax.twinx()
+    twin.plot(x, x**2 + 1, color="#123456", label="fit")
+    twin.set_ylim(1, 30)
+    ax.set_xlabel("|F| a_b <x>")
+    ax.legend()
+    return fig
+
+
+def _save(fig, path):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with mock.patch.object(
+            fig.compiler, "compile", wraps=fig.compiler.compile
+        ) as compile_:
+            out = fig.savefig(str(path))
+    assert compile_.call_args.kwargs["cairo"] is False
+    return out
+
+
+@pytest.mark.parametrize(
+    "bands", [("red", "blue"), ("blue", "red")], ids=["red-first", "blue-first"]
+)
+@pytest.mark.parametrize("log", [False, True], ids=["linear", "log"])
+def test_opaque_backdrop_compiles_natively(tmp_path, bands, log):
+    """No -cairo: the span and the bands are drawn first, in their opaque
+    colours, and every observation after them."""
+    fig = _opaque_figure(tmp_path, bands, log)
+    assert fig.requires_cairo() is False
+    eps = _save(fig, tmp_path / "opaque.eps").read_text(encoding="latin-1")
+    inks = {"red": _RED_BAND, "blue": _BLUE_BAND}
+    # The span, then the bands in call order, then the observations.
+    first = [eps.index(_GREEN_SPAN)] + [eps.index(inks[b]) for b in bands]
+    assert first == sorted(first)
+    assert max(first) < eps.index(_POINTS) and max(first) < eps.index(_LINE)
+    assert "rgba" not in (tmp_path / "opaque.gle").read_text()
+    pdf = _save(fig, tmp_path / "opaque.pdf")
+    assert pdf.read_bytes().startswith(b"%PDF")
+
+
+def test_opaque_backdrop_keeps_the_default_font(tmp_path):
+    """The label is drawn in GLE's default PostScript font, bars and all,
+    where the Cairo device's texcmr draws '|' as another glyph."""
+    fig = _opaque_figure(tmp_path, ("red",))
+    eps = _save(fig, tmp_path / "font.eps").read_text(encoding="latin-1")
+    assert "/Times-Roman f" in eps
+    assert "texcmr" not in eps.lower()
+    glyphs = re.findall(r"^\((.*)\) s$", eps, re.MULTILINE)
+    label = ["\\174", "F", "\\174", " ", "a", "\\137", "b", " ", "\\74", "x", "\\76"]
+    text = "".join(glyphs)
+    assert "".join(g for g in label if g != " ") in text

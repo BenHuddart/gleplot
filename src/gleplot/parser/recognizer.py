@@ -2343,6 +2343,7 @@ class _Recognizer:
             "default_linewidth",
             "default_color",
             "default_marker_color",
+            "opaque_backdrop",
             "import-data",
             "insets",
         )
@@ -2365,6 +2366,17 @@ class _Recognizer:
             default_color=self._meta_color(meta, "default_color"),
             default_marker_color=self._meta_color(meta, "default_marker_color"),
         )
+        backdrop = meta.get("opaque_backdrop")
+        if backdrop is not None:
+            try:
+                style.opaque_backdrop = backdrop
+            except (TypeError, ValueError):
+                self._note(
+                    ImportCategory.METADATA,
+                    f"opaque_backdrop = {backdrop!r} is not an opaque GLE "
+                    "colour; translucent colours are kept",
+                    None,
+                )
         self._polar_degree = polar_degree_mark(bool(style.usetex))
         self._usetex = bool(style.usetex)
         style.font = font

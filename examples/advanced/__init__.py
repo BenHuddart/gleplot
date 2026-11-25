@@ -20,6 +20,7 @@ from .fill_between import (
     example_area_fills,
     example_fill_between,
     example_fill_between_conditional,
+    example_opaque_bands,
 )
 from .gle_fits import example_fits_and_functions
 from .line_from_file import example_line_from_file
@@ -52,6 +53,7 @@ from .text_annotations import example_figure_text_and_legend, example_text_annot
 __all__ = [
     "example_fill_between",
     "example_fill_between_conditional",
+    "example_opaque_bands",
     "example_log_scale",
     "example_combined_plot",
     "example_multiple_styles",

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
 from ._warn import warn_external
-from .colors import _gle_color, _rgba_parts, _stored_color
+from .colors import _gle_color, _rgba_parts, _stored_color, gle_color_to_rgb255
 
 #: GLE's ``set cap`` and ``set join`` words, in GLE's own numbering order, so
 #: the first is GLE's default.
@@ -94,6 +94,14 @@ class GLEStyleConfig:
         the figure. Compiling needs a LaTeX installation; SVG output is not
         available. Default: False
 
+    opaque_backdrop : colour or None
+        Draw every translucent colour as the opaque colour it would look like
+        over this one, so a PDF or EPS compiles without GLE's ``-cairo``
+        device and keeps GLE's default font (see the Notes). Any colour
+        gleplot accepts, opaque. An axes with a ``facecolor``
+        (:meth:`gleplot.Axes.set_facecolor`) uses that instead for what it
+        draws. Default: None, which keeps transparency as written.
+
     Notes
     -----
     With ``default_color`` and ``default_marker_color`` left at None, a series given
@@ -115,6 +123,23 @@ class GLEStyleConfig:
     defaults. A colour is recorded as the GLE colour it draws. A figure
     opened that way continues each cycle after the series whose colours
     follow it.
+
+    With ``opaque_backdrop`` set, each ``alpha`` below 1 and each RGBA colour
+    is mixed with the backdrop when the script is written: red at
+    ``alpha=0.5`` over white is ``rgb255(255,127,127)``. A colour with zero
+    alpha is GLE's ``clear`` and draws nothing. The figure itself keeps its
+    alpha values, and the backdrop is recorded in the file's metadata, so
+    :func:`gleplot.open_gle` reads it back. Fills and spans are drawn behind
+    the data, so the lines, markers and error bars over them stay visible,
+    and the spans are drawn before the fills, so a band shows over a shaded
+    phase. Where two translucent fills overlap, the later one hides the
+    earlier one instead of mixing with it: blue over red, both at
+    ``alpha=0.5``, over white is ``rgb255(127,127,255)``, not the
+    ``rgb255(127,63,191)`` that transparency gives. A span gleplot draws
+    after the graph, because its axis range is left to GLE, would cover the
+    data if it were opaque, so it keeps its transparency and warns; set the
+    axis limits to draw it behind the data. SVG output is always drawn by
+    GLE's Cairo device, and ``savefig(..., cairo=True)`` still uses it.
 
     The ``line_style_*`` defaults are the GLE ``lstyle`` numbers that actually
     render as their names say, measured by compiling a ruler of ``set lstyle
@@ -160,6 +185,7 @@ class GLEStyleConfig:
     line_join: Optional[str] = None
     dashlen: Optional[float] = None
     usetex: bool = False
+    opaque_backdrop: Optional[Any] = None
 
     def __setattr__(self, name: str, value: Any) -> None:
         # Checked on every assignment, not only at construction:
@@ -190,6 +216,29 @@ class GLEStyleConfig:
         if value is not None and name in ("default_color", "default_marker_color"):
             value = _stored_color(value)
             _gle_color(_rgba_parts(value)[0], name)  # raises for an unknown colour
+        if value is not None and name == "opaque_backdrop":
+            value = _stored_color(value)
+            rgb, alpha = _rgba_parts(value)
+            if isinstance(rgb, str) and rgb.strip().startswith("#"):
+                # A hex alpha, which rgb_to_gle would drop with a warning.
+                digits = rgb.strip()[1:]
+                hex_alpha = {4: digits[3:] * 2, 8: digits[6:]}.get(len(digits))
+                try:
+                    alpha = int(hex_alpha, 16) / 255 if hex_alpha else None
+                except ValueError:
+                    pass  # not hex: _gle_color says so below
+            opaque = alpha is None or float(alpha) >= 1
+            if not opaque or (isinstance(rgb, str) and rgb.strip().lower() == "none"):
+                raise ValueError(
+                    f"opaque_backdrop must be an opaque colour, the one the "
+                    f"figure is shown on, such as 'white'; got {value!r}. None "
+                    "keeps transparency."
+                )
+            if gle_color_to_rgb255(_gle_color(rgb, name)) is None:
+                raise ValueError(
+                    f"opaque_backdrop must be a colour gleplot can mix, such as "
+                    f"'white', '#f0f0f0' or (0.9, 0.9, 0.9); got {value!r}."
+                )
         if name == "usetex" and not isinstance(value, bool):
             raise TypeError(
                 f"usetex must be True or False; got {value!r} of type "

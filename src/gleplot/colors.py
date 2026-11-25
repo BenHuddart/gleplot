@@ -25,7 +25,7 @@ when the figure is rebuilt.
 """
 
 import re
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -402,6 +402,79 @@ def apply_alpha(color: str, alpha: Optional[float]) -> str:
         return color
     r, g, b = rgb
     return "rgba255({},{},{},{})".format(r, g, b, _clamp255(a * 255.0))
+
+
+#: A GLE colour expression with an alpha whose four arguments are numbers.
+#: One whose arguments are GLE expressions is not matched: gleplot cannot
+#: evaluate it, so it stays translucent.
+_NUMERIC_RGBA_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(rgba255|rgba)\(\s*([-+.\deE]+)\s*,\s*([-+.\deE]+)\s*,"
+    r"\s*([-+.\deE]+)\s*,\s*([-+.\deE]+)\s*\)",
+    re.IGNORECASE,
+)
+
+
+def _opaque_colors(line: str, backdrop: Tuple[int, int, int]) -> Tuple[str, int]:
+    """``line`` with each translucent colour drawn opaque over ``backdrop``.
+
+    Each ``rgba255(...)``/``rgba(...)`` in the code, not in a string or a
+    comment (:func:`_gle_code_pieces`), becomes the
+    ``rgb255(...)`` it looks like over ``backdrop`` (0-255 RGB), or GLE's
+    ``clear`` at zero alpha, so it still draws nothing. Returns the line and
+    how many colours changed.
+    """
+
+    count = 0
+
+    def blend(m: "re.Match[str]") -> str:
+        nonlocal count
+        try:
+            values = [float(v) for v in m.group(2, 3, 4, 5)]
+        except ValueError:  # a GLE variable such as ``e``
+            return m.group(0)
+        count += 1
+        if m.group(1).lower() == "rgba":
+            values = [v * 255.0 for v in values]
+        a = max(0.0, min(255.0, values[3])) / 255.0
+        if a == 0.0:
+            return "clear"
+        r, g, b = (
+            _clamp255(c * a + under * (1.0 - a))
+            for c, under in zip(values[:3], backdrop)
+        )
+        return rgb255_expr(r, g, b)
+
+    pieces = [
+        _NUMERIC_RGBA_RE.sub(blend, text) if code else text
+        for text, code in _gle_code_pieces(line)
+    ]
+    return "".join(pieces), count
+
+
+#: A GLE string literal: the writer quotes text with ``"``, or with ``'``
+#: when the text holds a ``"``.
+_GLE_STRING_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
+
+
+def _gle_code_pieces(line: str) -> List[Tuple[str, bool]]:
+    """``line`` cut into ``(text, is_code)`` pieces that join back to it.
+
+    String literals and the ``!`` comment that ends a line are not code, so
+    nothing that rewrites or reads colours in the code touches a label, a
+    comment or the metadata block.
+    """
+    pieces: List[Tuple[str, bool]] = []
+    pos = 0
+    for m in [*_GLE_STRING_RE.finditer(line), None]:
+        end = len(line) if m is None else m.start()
+        bang = line.find("!", pos, end)
+        if bang >= 0:
+            return pieces + [(line[pos:bang], True), (line[bang:], False)]
+        pieces.append((line[pos:end], True))
+        if m is not None:
+            pieces.append((m.group(0), False))
+            pos = m.end()
+    return pieces
 
 
 def gle_color_to_rgb255(color: str) -> Optional[Tuple[int, int, int]]:

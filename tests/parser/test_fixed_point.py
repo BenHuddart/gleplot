@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import gleplot
@@ -97,6 +98,39 @@ def test_golden_battery_fixed_point(name, tmp_path):
     assert name not in _EXEMPT
     assert data2 == data1, f"{name}: data files differ after round-trip"
     assert text2 == text1, f"{name}: GLE text differs after round-trip"
+
+
+def _opaque_backdrop_figure():
+    """Translucent fills, a span, an RGBA line and a translucent frame, drawn
+    opaque by ``GLEStyleConfig(opaque_backdrop=...)``, and a span drawn
+    after the graph, which keeps its alpha. Not in the golden battery: the
+    file holds the opaque colours, so the figure read back has no alpha to
+    compare with the one built."""
+    fig = gleplot.figure(
+        style=gleplot.GLEStyleConfig(opaque_backdrop="white"), data_prefix="golden"
+    )
+    ax, empty = fig.add_subplot(121), fig.add_subplot(122)
+    x = np.linspace(0, 2, 5)
+    ax.set_facecolor((0.9, 0.9, 1.0, 0.5))
+    ax.fill_between(x, x - 0.5, x + 0.5, color="red", alpha=0.5, label="band")
+    ax.fill_between(x, x, x + 1, color="blue", alpha=0.0)
+    ax.axvspan(0.5, 1.0, color="green", alpha=0.3, label="phase")
+    ax.plot(x, x, color="rgba255(200,30,30,128)", label="fit")
+    ax.legend()
+    empty.axhspan(0.2, 0.4, color="orange", alpha=0.4)
+    return fig
+
+
+def test_an_opaque_backdrop_figure_is_a_fixed_point(tmp_path):
+    with pytest.warns(UserWarning):
+        text1, data1, text2, data2, _ = _round_trip(_opaque_backdrop_figure, tmp_path)
+    # The band over the frame, the frame over the white backdrop.
+    assert "color rgb255(249,121,127)" in text1
+    assert "! gleplot: opaque_backdrop = WHITE" in text1
+    assert "background rgb255(242,242,255)" in text1
+    assert text1.count("rgba255(") == 1  # the band drawn after the graph
+    assert data2 == data1
+    assert text2 == text1
 
 
 # -- Project-I/O battery ----------------------------------------------------

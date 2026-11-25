@@ -542,7 +542,7 @@ ax.stackplot(x, y, y, labels=["a", "b"], baseline="sym")
 | `fill` extra polygons | the first polygon is drawn. The rest warn and are ignored. |
 | `edgecolor`, `linewidth` on `fill` | warn and are ignored. GLE fills the interior and does not stroke it. |
 | `hatch` | warns and is ignored, on `stackplot` too. A graph `fill` has no `pattern` keyword, and a pattern name given as its colour draws black lines on white, which would hide the face colour. |
-| `alpha` | unchanged: below 1 the colour is `rgba255(...)`. |
+| `alpha` | unchanged: below 1 the colour is `rgba255(...)`, or, with `GLEStyleConfig(opaque_backdrop=...)`, the opaque colour it looks like over that backdrop. |
 
 ## Saving
 
