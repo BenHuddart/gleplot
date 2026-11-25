@@ -132,7 +132,49 @@ def example_area_fills():
     print("  ✓ Saved to example_area_fills.gle")
 
 
+def example_opaque_bands():
+    """Uncertainty bands and a phase span drawn without transparency.
+    ``GLEStyleConfig(opaque_backdrop="white")`` writes each ``alpha`` as the
+    opaque colour it looks like over white, so the figure compiles to PDF or
+    EPS without GLE's ``-cairo`` device, in GLE's default font, which draws
+    the bars of ``|F|``. Where the bands overlap, the one drawn later hides
+    the other instead of mixing with it.
+    """
+    print("Creating example: Opaque bands...")
+
+    fig = glp.figure(figsize=(8, 6), style=glp.GLEStyleConfig(opaque_backdrop="white"))
+    ax = fig.add_subplot(111)
+
+    q = np.linspace(0, 4, 81)
+    model_a = np.exp(-q) + 0.2
+    model_b = 0.9 * np.exp(-0.6 * q) + 0.1
+    ax.axvspan(1.0, 1.8, color="gray", alpha=0.3, label="ordered phase")
+    ax.fill_between(
+        q, model_a - 0.1, model_a + 0.1, color="C0", alpha=0.4, label="model A"
+    )
+    ax.fill_between(
+        q, model_b - 0.1, model_b + 0.1, color="C1", alpha=0.4, label="model B"
+    )
+    ax.plot(q, model_a, color="C0")
+    ax.plot(q, model_b, color="C1")
+
+    rng = np.random.default_rng(3)
+    q_obs = np.linspace(0.2, 3.8, 13)
+    f_obs = np.exp(-q_obs) + 0.2 + rng.normal(0, 0.03, q_obs.size)
+    ax.errorbar(q_obs, f_obs, yerr=0.05, fmt="o", color="black", label="data")
+
+    ax.set_xlim(0, 4)
+    ax.set_ylim(0, 1.4)
+    ax.set_xlabel("q")
+    ax.set_ylabel("|F|")
+    ax.legend()
+
+    fig.savefig("example_opaque_bands.gle")
+    print("  ✓ Saved to example_opaque_bands.gle")
+
+
 if __name__ == "__main__":
     example_fill_between()
     example_fill_between_conditional()
     example_area_fills()
+    example_opaque_bands()

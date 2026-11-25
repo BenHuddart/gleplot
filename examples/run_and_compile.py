@@ -48,6 +48,7 @@ from advanced import (
     example_log_scale,
     example_marker_config,
     example_multiple_styles,
+    example_opaque_bands,
     example_open_gle,
     example_page_drawings,
     example_per_element_styling,
@@ -153,6 +154,7 @@ EXAMPLES = [
         example_area_fills,
         ["example_area_fills"],
     ),
+    ("Opaque Bands (no Cairo)", example_opaque_bands, ["example_opaque_bands"]),
     (
         "Reference Lines and Spans",
         example_reference_lines_and_spans,

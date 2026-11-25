@@ -38,7 +38,13 @@ import numpy as np
 
 from . import palettes as _pal
 from ._warn import warn_external
-from .colors import apply_alpha
+from .colors import (
+    _gle_color,
+    _opaque_colors,
+    _rgba_parts,
+    apply_alpha,
+    gle_color_to_rgb255,
+)
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
 from .guides import (
     GRAPHUTIL_INCLUDE,
@@ -1605,6 +1611,12 @@ class GLEWriter:
         # _sub_defs_mark: which guides need graphutil.gle is not known until
         # each axes' limits are.
         self._pending_guide_lines: List[str] = []
+        # GLEStyleConfig.opaque_backdrop as 0-255 RGB, None to keep alpha.
+        self._backdrop = self._rgb(self.style.opaque_backdrop)
+        # How many translucent colours flatten_alpha has drawn opaque, and
+        # the after-graph span lines it leaves translucent (see add_span).
+        self.opaque_conversions = 0
+        self._translucent_kept: Set[str] = set()
         self._includes: Set[str] = set()
         self._sub_defs_mark: int = 0
         # The raw lines a loaded file kept ahead of the subs gleplot writes
@@ -2052,9 +2064,47 @@ class GLEWriter:
         """GLE's graph ``background``: fill the frame with ``color``.
 
         GLE fills it before drawing anything in the graph, wherever the line
-        stands in the block.
+        stands in the block. Under ``opaque_backdrop`` a translucent
+        ``color`` is mixed with the figure's backdrop here, since the frame
+        is the backdrop of what the graph draws (:meth:`flatten_alpha`).
         """
+        if self._backdrop is not None:
+            color = self._opaque_line(color, self._backdrop)
         self.lines_gle.append(f"    background {color}")
+
+    @staticmethod
+    def _rgb(color: Any) -> Optional[Tuple[int, int, int]]:
+        """``color``, any colour gleplot accepts, as 0-255 RGB; None for None
+        or a colour that does not resolve to one."""
+        if color is None:
+            return None
+        return gle_color_to_rgb255(_gle_color(_rgba_parts(color)[0], "color"))
+
+    def _opaque_line(self, line: str, backdrop: Tuple[int, int, int]) -> str:
+        line, count = _opaque_colors(line, backdrop)
+        self.opaque_conversions += count
+        return line
+
+    def flatten_alpha(self, start: int, facecolor: Optional[str] = None) -> None:
+        """Under ``opaque_backdrop``, draw the translucent colours written
+        since line ``start`` opaque.
+
+        Each is mixed with ``facecolor``, the frame colour of the axes those
+        lines belong to (:meth:`add_background`), or else with the figure's
+        ``opaque_backdrop``. Lines already flattened are unchanged, so the
+        figure's own lines can be passed over from 0 last. Without
+        ``opaque_backdrop`` nothing changes.
+        """
+        if self._backdrop is None:
+            return
+        backdrop = self._backdrop
+        if facecolor is not None:
+            frame = _opaque_colors(facecolor, backdrop)[0]
+            backdrop = self._rgb(frame) or backdrop
+        for i in range(start, len(self.lines_gle)):
+            line = self.lines_gle[i]
+            if line not in self._translucent_kept:
+                self.lines_gle[i] = self._opaque_line(line, backdrop)
 
     def add_axes(
         self,
@@ -6564,10 +6614,27 @@ class GLEWriter:
         labelled band also gets a data-free ``dN keyfill ... key`` line
         inside the graph, whose swatch uses that same token unless the
         series carries a ``swatch_color``.
+
+        Drawn after the graph, an opaque box would hide the data, so under
+        ``opaque_backdrop`` a translucent band keeps its transparency, and
+        warns. Its key swatch is drawn opaque, as the band looks.
         """
         color = apply_alpha(series["color"], series["alpha"])
         edges = self._span_range(series["orient"], series["start"], series["end"])
-        self._pending_guide_lines.extend(self.span_draw_lines(series, color, edges))
+        lines = self.span_draw_lines(series, color, edges)
+        if self._backdrop is not None and _opaque_colors(color, self._backdrop)[1] > 0:
+            name = "axvspan" if series["orient"] == "v" else "axhspan"
+            # The axis the band spans, whose range GLE was left to choose.
+            limits = "set_ylim" if series["orient"] == "v" else "set_xlim"
+            warn_external(
+                f"{name}() stays translucent under GLEStyleConfig("
+                "opaque_backdrop=...), so the figure still needs GLE's -cairo "
+                "device: the band is drawn over the data because its axis range "
+                f"is left to GLE, and an opaque band would hide the data. Call "
+                f"{limits}() to draw it as an opaque band behind the data."
+            )
+            self._translucent_kept.update(lines)
+        self._pending_guide_lines.extend(lines)
         if series["label"]:
             self.add_fill_key(series.get("swatch_color") or color, series["label"])
 

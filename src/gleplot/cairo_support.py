@@ -213,6 +213,14 @@ def _value_requires_cairo(obj: Any) -> bool:
     return False
 
 
+def script_requires_cairo(script: str) -> bool:
+    """Whether a written GLE script draws a translucent colour, which only
+    GLE's ``-cairo`` device can. Used for a figure with
+    ``GLEStyleConfig.opaque_backdrop`` set, whose snapshot keeps the alpha
+    values the script no longer has."""
+    return bool(_RGBA_COLOR_RE.search(script))
+
+
 def figure_requires_cairo(snapshot: dict) -> bool:
     """Whether a ``Figure.to_dict()`` snapshot needs GLE's ``-cairo`` device.
 

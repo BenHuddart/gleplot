@@ -67,6 +67,20 @@ too. gleplot compiles those figures with `-cairo`, so GLE draws such text in
 `texcmr` instead, and saving warns. Use the TeX Computer Modern (`texcm*`)
 fonts for figures drawn that way to choose the font yourself.
 
+A PDF or EPS that needs `-cairo` only for its semi-transparent colours can
+keep GLE's default font instead. Name the colour the figure is shown on:
+
+    style = glp.GLEStyleConfig(opaque_backdrop='white')
+
+Each translucent colour is then written as the opaque colour it looks like
+over that backdrop, or over an axes' `facecolor`, and the figure compiles
+without `-cairo`. Fills and spans stay behind the data, and the spans are
+drawn first, so an uncertainty band shows over a shaded phase. Two translucent
+fills that overlap no longer mix: the one drawn later hides the other. The
+`opaque_backdrop` entry of `GLEStyleConfig` in the API reference gives the
+details, including the spans that keep their transparency. SVG output is
+still drawn by the Cairo device.
+
 The `texcm*` fonts lay out some characters differently from the PostScript
 fonts, so GLE draws them as other glyphs. In `texcmr`, `texcmb`, `texcmti`,
 `texcmss`, `texcmssb` and `texcmssi`, `<` draws as `¡`, `>` as `¿`, `_` as a

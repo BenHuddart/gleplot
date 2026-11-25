@@ -492,3 +492,244 @@ class TestNoStyleLeakBetweenFigures:
         fig = glp.figure()
         fig.style.font = "rm"
         assert GlobalConfig.style.font != "rm"
+
+
+# --------------------------------------------------------------------------- #
+# GLEStyleConfig(opaque_backdrop=...): translucent colours drawn opaque
+# --------------------------------------------------------------------------- #
+
+
+def _opaque_figure(backdrop="white"):
+    fig = glp.figure(
+        style=GLEStyleConfig(opaque_backdrop=backdrop), data_prefix="opaque"
+    )
+    return fig, fig.add_subplot(111)
+
+
+def _script(fig, tmp_path):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return fig.savefig_gle(str(tmp_path / "opaque.gle")).read_text()
+
+
+def _composite(layers, backdrop):
+    """True ordered alpha compositing of ``(rgb, alpha)`` layers, 0-255."""
+    out = list(backdrop)
+    for rgb, alpha in layers:
+        out = [c * alpha + o * (1 - alpha) for c, o in zip(rgb, out)]
+    return tuple(round(v) for v in out)
+
+
+class TestOpaqueBackdrop:
+    X = np.array([0.0, 1.0, 2.0])
+
+    @pytest.mark.parametrize("value", ["white", "#f0f0f0", (0.9, 0.9, 0.9, 1.0)])
+    def test_an_opaque_colour_is_accepted(self, value):
+        assert GLEStyleConfig(opaque_backdrop=value).opaque_backdrop is not None
+
+    @pytest.mark.parametrize(
+        "value, match",
+        [
+            ((1.0, 1.0, 1.0, 0.5), "opaque colour"),
+            ("none", "opaque colour"),
+            ("rgba255(255,255,255,128)", "can mix"),
+        ],
+    )
+    def test_a_backdrop_that_is_not_opaque_raises(self, value, match):
+        with pytest.raises(ValueError, match=match):
+            GLEStyleConfig(opaque_backdrop=value)
+
+    def test_default_keeps_transparency(self, tmp_path):
+        fig = glp.figure(data_prefix="opaque")
+        fig.add_subplot(111).fill_between(self.X, 0, 1, color="red", alpha=0.5)
+        assert GLEStyleConfig().opaque_backdrop is None
+        assert "rgba255(255,0,0,128)" in _script(fig, tmp_path)
+        assert fig.requires_cairo() is True
+
+    def test_a_translucent_fill_is_mixed_with_the_backdrop(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.5, label="band")
+        script = _script(fig, tmp_path)
+        assert "fill d1,d2 color rgb255(255,127,127)" in script
+        # The legend swatch is the colour the band is drawn in.
+        assert "d1 keyfill rgb255(255,127,127)" in script
+        assert "rgba" not in script
+        # GLE's default font: no replacement is written.
+        assert "set font" not in script
+        assert fig.requires_cairo() is False
+
+    def test_a_nonwhite_backdrop(self, tmp_path):
+        fig, ax = _opaque_figure("black")
+        ax.fill_between(self.X, 0, 1, color="white", alpha=0.5)
+        assert "color rgb255(128,128,128)" in _script(fig, tmp_path)
+
+    def test_an_axes_facecolor_is_the_backdrop_of_its_contents(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.set_facecolor((1.0, 0.0, 0.0, 0.5))
+        ax.fill_between(self.X, 0, 1, color="blue", alpha=0.5)
+        script = _script(fig, tmp_path)
+        # The frame is mixed with the figure's backdrop, the band with it.
+        assert "background rgb255(255,127,127)" in script
+        assert "color rgb255(127,63,191)" in script
+
+    def test_zero_and_full_alpha(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.0)
+        ax.fill_between(self.X, 1, 2, color="lightblue", alpha=1.0)
+        script = _script(fig, tmp_path)
+        assert "color clear" in script
+        assert "color LIGHTBLUE" in script
+
+    def test_explicit_rgba_colours(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.plot(self.X, self.X, color="rgba255(200,30,30,128)", label="F")
+        ax.hist([0.5, 1.5, 1.6], color=(0.0, 0.0, 1.0, 0.5), histtype="stepfilled")
+        script = _script(fig, tmp_path)
+        assert "color rgb255(227,142,142)" in script
+        assert "rgb255(127,127,255)" in script
+        assert "rgba" not in script
+
+    def test_an_rgba_colour_in_fractions(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.plot(self.X, self.X, color="rgba(0,0,1,0.5)")
+        assert "color rgb255(128,128,255)" in _script(fig, tmp_path)
+        assert fig.requires_cairo() is False
+
+    def test_an_rgba_expression_gleplot_cannot_evaluate_stays(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.plot(self.X, self.X, color="rgba(e,0,0,0.5)")
+        assert "color rgba(e,0,0,0.5)" in _script(fig, tmp_path)
+        assert fig.requires_cairo() is True
+
+    def test_a_quoted_label_is_not_rewritten(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.plot(self.X, self.X, label="rgba(1,0,0,0.5)")
+        assert 'key "rgba(1,0,0,0.5)"' in _script(fig, tmp_path)
+
+    @pytest.mark.parametrize(
+        "order", [("red", "blue"), ("blue", "red")], ids=["red-first", "blue-first"]
+    )
+    def test_overlapping_fills_are_not_composited(self, tmp_path, order):
+        """The later fill wins the overlap: it is not the colour ordered
+        transparency gives, as GLEStyleConfig's Notes say."""
+        rgb = {"red": (255, 0, 0), "blue": (0, 0, 255)}
+        fig, ax = _opaque_figure()
+        for name in order:
+            ax.fill_between(self.X, 0, 1, color=name, alpha=0.5)
+        script = _script(fig, tmp_path)
+        alone = {"red": "rgb255(255,127,127)", "blue": "rgb255(127,127,255)"}
+        fills = [line for line in script.splitlines() if " fill d" in line]
+        assert [line.split()[-1] for line in fills] == [alone[n] for n in order]
+        composite = _composite([(rgb[n], 128 / 255) for n in order], (255, 255, 255))
+        assert composite == ((127, 63, 191) if order[0] == "red" else (191, 63, 127))
+        assert "rgb255({},{},{})".format(*composite) not in script
+
+    def test_fills_are_drawn_before_the_data(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.plot(self.X, self.X, color="black")
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.5)
+        ax.axvspan(0.5, 1.5, color="green", alpha=0.3)
+        lines = _script(fig, tmp_path).splitlines()
+        drawn = [i for i, line in enumerate(lines) if " fill d" in line]
+        data = [i for i, line in enumerate(lines) if " line color BLACK" in line]
+        assert len(drawn) == 2 and max(drawn) < min(data)
+
+    def test_spans_are_drawn_before_the_fills(self, tmp_path):
+        """Opaque, a span drawn over a band would hide it; whatever the call
+        order, the span is the backdrop of the bands."""
+        fig, ax = _opaque_figure()
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.5)
+        ax.axvspan(0.5, 1.5, color="green", alpha=0.3)
+        fills = [
+            line for line in _script(fig, tmp_path).splitlines() if " fill d" in line
+        ]
+        assert [line.split()[-1] for line in fills] == [
+            "rgb255(179,217,179)",
+            "rgb255(255,127,127)",
+        ]
+
+    def test_the_backdrop_is_read_back(self, tmp_path):
+        fig, ax = _opaque_figure("#f0f0f0")
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.5)
+        script = _script(fig, tmp_path)
+        assert "! gleplot: opaque_backdrop = rgb255(240,240,240)" in script
+        loaded = glp.open_gle(str(tmp_path / "opaque.gle"))
+        assert loaded.style.opaque_backdrop == "rgb255(240,240,240)"
+
+    def test_an_unusable_backdrop_in_a_file_is_reported(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.plot(self.X, self.X)
+        path = tmp_path / "opaque.gle"
+        _script(fig, tmp_path)
+        path.write_text(
+            path.read_text().replace(
+                "opaque_backdrop = WHITE", "opaque_backdrop = rgba255(1,2,3,4)"
+            )
+        )
+        with pytest.warns(UserWarning, match="opaque_backdrop.*not an opaque"):
+            loaded = glp.open_gle(str(path))
+        assert loaded.style.opaque_backdrop is None
+
+    def test_the_figure_keeps_its_alpha(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.5)
+        ax.axvspan(0.5, 1.5, color="green", alpha=0.3)
+        # A save writes autoscaled limits back; set them so only the policy
+        # could change the snapshot.
+        ax.set_xlim(0, 2)
+        ax.set_ylim(0, 1)
+        before = fig.to_dict()
+        _script(fig, tmp_path)
+        fig.requires_cairo()
+        assert fig.to_dict() == before
+
+    def test_the_conversion_warns(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.5)
+        with pytest.warns(UserWarning, match="later now hides the other"):
+            fig.savefig_gle(str(tmp_path / "opaque.gle"))
+
+    def test_an_opaque_figure_does_not_warn(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.fill_between(self.X, 0, 1, color="red")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fig.savefig_gle(str(tmp_path / "opaque.gle"))
+
+    def test_a_span_drawn_after_the_graph_stays_translucent(self, tmp_path):
+        """With no data the y range is GLE's, so the band is drawn over the
+        graph: opaque, it would hide what is under it."""
+        fig, ax = _opaque_figure()
+        ax.axvspan(0.5, 1.5, color="green", alpha=0.3, label="phase")
+        with pytest.warns(
+            UserWarning, match=r"axvspan\(\) stays translucent.*set_ylim"
+        ):
+            script = fig.savefig_gle(str(tmp_path / "opaque.gle")).read_text()
+        assert "box " in script and "fill rgba255(0,128,0,76)" in script
+        assert fig.requires_cairo() is True
+        fig.compiler = mock.Mock()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            fig.savefig(str(tmp_path / "opaque.pdf"))
+        assert fig.compiler.compile.call_args.kwargs["cairo"] is True
+
+    @pytest.mark.parametrize(
+        "fmt, cairo", [("pdf", False), ("eps", False), ("svg", True)]
+    )
+    def test_savefig_compiles_without_cairo_except_svg(self, tmp_path, fmt, cairo):
+        fig, ax = _opaque_figure()
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.5)
+        fig.compiler = mock.Mock()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            fig.savefig(str(tmp_path / f"opaque.{fmt}"))
+        assert fig.compiler.compile.call_args.kwargs["cairo"] is cairo
+
+    def test_an_explicit_cairo_request_is_honoured(self, tmp_path):
+        fig, ax = _opaque_figure()
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.5)
+        fig.compiler = mock.Mock()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            fig.savefig(str(tmp_path / "opaque.pdf"), cairo=True)
+        assert fig.compiler.compile.call_args.kwargs["cairo"] is True

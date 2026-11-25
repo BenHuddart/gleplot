@@ -107,7 +107,10 @@ dataset form.
   `alpha=1.0`. GLE draws a semi-transparent colour only with its `-cairo` device;
   `savefig` uses it for such a figure unless told `cairo=False`, and its
   font cost is in the [Configuration Guide](CONFIGURATION.md) ("Available Fonts").
-  A `.gle` compiled some other way needs `-cairo` too. `axvline` and
+  A `.gle` compiled some other way needs `-cairo` too. With
+  `GLEStyleConfig(opaque_backdrop=...)` a span is written in the opaque colour
+  it looks like instead, except one drawn after the graph, which would hide
+  the data: it keeps its alpha and warns. `axvline` and
   `axhline` take no `alpha` (it warns and is ignored), and drop an RGBA
   colour's fourth value with a warning, so use a light colour
   (`'lightgray'`, `'lightcyan'`, …) for a faint line.
