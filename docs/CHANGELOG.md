@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v6.1.0 (2026-11-25)
+
+### Bug Fixes
+
+- Address review of opaque_backdrop (strings, comments, legend, hex alpha)
+  ([`d850f74`](https://github.com/BenHuddart/gleplot/commit/d850f74988d8373b0c911c8be5ce98091364486a))
+
+### Documentation
+
+- Describe PyPI publishing as live now that 6.0.0 is on PyPI
+  ([`2dd62ec`](https://github.com/BenHuddart/gleplot/commit/2dd62ec376777f01a6569ebd1ccd9681f67efefb))
+
+### Features
+
+- Add GLEStyleConfig(opaque_backdrop=...) for native no-alpha export
+  ([`0bf15e1`](https://github.com/BenHuddart/gleplot/commit/0bf15e127ce31e1173d335d286bc8ed898ac15de))
+
+
 ## v6.0.0 (2026-11-22)
 
 ### Bug Fixes
