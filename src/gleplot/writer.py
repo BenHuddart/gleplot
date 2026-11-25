@@ -2231,7 +2231,9 @@ class GLEWriter:
             scale that actually carries data has to say ``x2axis lin``
             afterwards. A figure that never uses the top scale does not.
         y2_series : bool
-            True when a dataset is drawn against the right-hand scale.
+            True when a dataset is drawn against the right-hand scale. GLE
+            copies ``yaxis log`` onto y2 the same way, so a linear y2 scale
+            in use under a log y axis says ``y2axis lin``.
         title_size, title_color, title_dist, title_font : optional
             The graph title's ``hei`` (points), ``color``, ``dist`` (cm) and
             ``font`` -- GLE ``title "..." hei H color C font F dist D``. GLE's title belongs to
@@ -2350,6 +2352,7 @@ class GLEWriter:
             style=y2style,
             off=y2axis_off,
             yaxis_off=yaxis_off,
+            ylog=ylog,
             y2_series=y2_series,
             yticks_off=yplaces == [] and not frame_off,
         )
@@ -2479,10 +2482,15 @@ class GLEWriter:
         style: AxisStyle,
         off: bool,
         yaxis_off: bool,
+        ylog: bool,
         y2_series: bool,
         yticks_off: bool,
     ) -> None:
         """The ``y2axis`` line and ``y2labels on``, when y2 is configured.
+
+        GLE copies ``yaxis log`` onto y2 the way it does x onto x2 (see
+        :meth:`_add_x2_axis`), so a linear right-hand scale that is in use
+        under a log left axis has to say ``lin``.
 
         GLE mirrors the primary axis onto the opposite side by default, and
         that mirroring is what draws the closing edge of the box. Switching
@@ -2495,11 +2503,33 @@ class GLEWriter:
         lo, hi, negate = self._axis_direction(lo, hi)
         y2_on = yaxis_off and not off
         y2_styled = style is not _NO_STYLE and style != _NO_STYLE
-        if lo is not None or hi is not None or log or off or y2_on or y2_styled:
+        y2_lin = (
+            ylog
+            and not log
+            and not off
+            and (
+                lo is not None
+                or hi is not None
+                or bool(label)
+                or style.has_tick_label_styling()
+                or y2_series
+            )
+        )
+        if (
+            lo is not None
+            or hi is not None
+            or log
+            or y2_lin
+            or off
+            or y2_on
+            or y2_styled
+        ):
             cmd = "    y2axis"
             cmd += self._axis_range("y2", lo, hi, log)
             if log:
                 cmd += " log"
+            elif y2_lin:
+                cmd += " lin"
             if negate:
                 cmd += " negate"
             cmd += self._axis_style_tokens("y2", style)

@@ -13,6 +13,7 @@ The recognizer half of plan task G10. Two bars:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -157,6 +158,54 @@ def test_a_redundant_x2axis_lin_is_kept(tmp_path):
     second = tmp_path / "two.gle"
     recognized.figure.savefig_gle(str(second))
     assert "x2axis lin" in second.read_text(encoding="utf-8")
+
+
+def test_a_redundant_y2axis_lin_is_kept(tmp_path):
+    """``lin`` with a linear y axis is not something the writer emits."""
+    path = _write(tmp_path, "lin.gle", "   yaxis min 1 max 3\n   y2axis lin\n")
+    recognized = parse_gle_figure(path)
+    assert any(
+        "y2axis lin" in line for line in recognized.figure.axes_list[0].passthrough
+    )
+    second = tmp_path / "two.gle"
+    recognized.figure.savefig_gle(str(second))
+    assert "y2axis lin" in second.read_text(encoding="utf-8")
+
+
+def _resaved(tmp_path, body):
+    recognized = parse_gle_figure(_write(tmp_path, "in.gle", body))
+    second = tmp_path / "two.gle"
+    recognized.figure.savefig_gle(str(second))
+    return recognized.figure.axes_list[0], second.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "body,line",
+    [
+        (
+            "   yaxis min 1 max 100 log\n   y2axis min 1 max 100\n",
+            "y2axis min 1 max 100 log",
+        ),
+        (
+            "   xaxis min 1 max 100 log\n   x2axis min 1 max 100\n",
+            "x2axis min 1 max 100 log",
+        ),
+    ],
+)
+def test_a_twin_scale_that_inherits_log_stays_log(tmp_path, body, line):
+    """With no ``lin``, GLE copies the primary ``log`` onto the twin scale."""
+    ax, text = _resaved(tmp_path, body)
+    assert (ax.y2scale, ax.x2scale).count("log") == 1
+    assert line in text
+    assert not re.search(r" lin\b", text)
+
+
+def test_a_lin_on_a_twin_scale_that_is_off_is_kept(tmp_path):
+    """The writer writes no ``lin`` on an ``off`` scale, so the token is kept."""
+    _, text = _resaved(
+        tmp_path, "   yaxis min 1 max 100 log\n   y2axis min 0 max 10 lin off\n"
+    )
+    assert "y2axis lin" in text
 
 
 def test_x2axis_off_is_reemitted(tmp_path):

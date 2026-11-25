@@ -130,6 +130,10 @@ them. An axes with nothing at all on the left axis is the exception: its
 left range spans the y2 series, where matplotlib's empty left axis runs
 from 0 to 1.
 
+GLE copies `log` from a `yaxis` command onto y2, so a linear right-hand
+scale under a log left axis is written `y2axis lin`. A log left axis with
+nothing on y2 does not gain that line.
+
 The top scale is the same idea, and `ax.twiny()` is the matplotlib view that
 binds it. The y axis stays the one the view was opened on; limits, log and
 the label set on the view belong to the top scale:

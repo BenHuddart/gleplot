@@ -488,6 +488,19 @@ def secondary_xaxis():
     return fig
 
 
+def secondary_yaxis_linear_under_log():
+    """A linear twinx scale under a log y axis: y2 has to answer ``lin``."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [1, 10, 100], color="blue", label="counts")
+    ax.set_yscale("log")
+    right = ax.twinx()
+    right.plot([0, 1, 2], [0, 5, 10], color="red", label="rate")
+    right.set_ylabel("rate")
+    ax.legend()
+    return fig
+
+
 def legend_positions_all():
     figs = []
     for loc in (
@@ -2317,6 +2330,7 @@ BUILDERS = [
     secondary_yaxis,
     axis_helpers,
     secondary_xaxis,
+    secondary_yaxis_linear_under_log,
     legend_positions_all,
     legend_full_options,
     legend_spacing,

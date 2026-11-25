@@ -753,6 +753,9 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``bar_per_width`` was added when ``bar`` took one width per bar (#561).
     ``legend_underscore_labels`` was added when a label starting with an
     underscore stopped being a legend entry (#566).
+    ``axis_helpers`` moved, and ``secondary_yaxis_linear_under_log`` was
+    added, when a linear y2 scale under a log y axis started saying ``lin``
+    (#574).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():
