@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v6.1.1 (2026-11-25)
+
+### Bug Fixes
+
+- Keep a linear twinx scale linear under a log y axis
+  ([`fe2e545`](https://github.com/BenHuddart/gleplot/commit/fe2e5451cfb069f8ca0911ba6d88689b7d409fa3))
+
+- Keep an imported twin scale's inherited log and hidden lin
+  ([`e78ca35`](https://github.com/BenHuddart/gleplot/commit/e78ca35093396129405931cd8c2c8e4606550d34))
+
+
 ## v6.1.0 (2026-11-25)
 
 ### Bug Fixes

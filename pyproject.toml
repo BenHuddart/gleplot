@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gleplot"
-version = "6.1.0"
+version = "6.1.1"
 description = "Write standard GLE (Graphics Layout Engine) from Python, with matplotlib-shaped names"
 readme = "README.md"
 requires-python = ">=3.9"
