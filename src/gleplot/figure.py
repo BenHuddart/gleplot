@@ -3689,7 +3689,8 @@ class Figure:
         """Labelled series in emission order, each with its key swatch.
 
         The order is the one ``_write_axes_content`` draws: engine-range
-        spans, plain fills, dataset-form spans, engine-range reflines,
+        spans, plain fills, dataset-form spans (before the fills under
+        ``opaque_backdrop``), engine-range reflines,
         dataset-form reflines, z-ordered bars/lines/scatters/errorbars,
         then file series, then derived curves. Hidden and dangling series
         are already dropped.
@@ -3717,16 +3718,18 @@ class Figure:
                 span["color"], span.get("alpha", 1.0)
             )
             add(span, writer.legend_swatch(span["color"], fill=token))
-        for series, fill in resolution.pairs(ax.fills):
-            token = fill.get("swatch_color") or apply_alpha(
-                fill["color"], fill.get("alpha", 1.0)
+        # As _write_fills orders them: dataset-form spans before the fills
+        # under opaque_backdrop.
+        fills = [(series, fill) for series, fill in resolution.pairs(ax.fills)]
+        spans = [(span, span) for span in ax.dataset_form_guides(ax.spans, limits)]
+        bands = (
+            spans + fills if writer.style.opaque_backdrop is not None else fills + spans
+        )
+        for series, band in bands:
+            token = band.get("swatch_color") or apply_alpha(
+                band["color"], band.get("alpha", 1.0)
             )
-            add(series, writer.legend_swatch(fill["color"], fill=token))
-        for span in ax.dataset_form_guides(ax.spans, limits):
-            token = span.get("swatch_color") or apply_alpha(
-                span["color"], span.get("alpha", 1.0)
-            )
-            add(span, writer.legend_swatch(span["color"], fill=token))
+            add(series, writer.legend_swatch(band["color"], fill=token))
         for ref in ax.engine_range_guides(ax.reflines, limits):
             add(
                 ref,

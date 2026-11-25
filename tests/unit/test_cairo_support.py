@@ -523,7 +523,9 @@ def _composite(layers, backdrop):
 class TestOpaqueBackdrop:
     X = np.array([0.0, 1.0, 2.0])
 
-    @pytest.mark.parametrize("value", ["white", "#f0f0f0", (0.9, 0.9, 0.9, 1.0)])
+    @pytest.mark.parametrize(
+        "value", ["white", "#f0f0f0", "#f0f0f0ff", (0.9, 0.9, 0.9, 1.0)]
+    )
     def test_an_opaque_colour_is_accepted(self, value):
         assert GLEStyleConfig(opaque_backdrop=value).opaque_backdrop is not None
 
@@ -533,6 +535,8 @@ class TestOpaqueBackdrop:
             ((1.0, 1.0, 1.0, 0.5), "opaque colour"),
             ("none", "opaque colour"),
             ("rgba255(255,255,255,128)", "can mix"),
+            ("#ffffff80", "opaque colour"),
+            ("#fff8", "opaque colour"),
         ],
     )
     def test_a_backdrop_that_is_not_opaque_raises(self, value, match):
@@ -604,7 +608,41 @@ class TestOpaqueBackdrop:
     def test_a_quoted_label_is_not_rewritten(self, tmp_path):
         fig, ax = _opaque_figure()
         ax.plot(self.X, self.X, label="rgba(1,0,0,0.5)")
-        assert 'key "rgba(1,0,0,0.5)"' in _script(fig, tmp_path)
+        # Text holding a double quote is written in single quotes.
+        ax.text(1, 1, '"quoted" rgba(1,0,0,0.5)')
+        script = _script(fig, tmp_path)
+        assert 'key "rgba(1,0,0,0.5)"' in script
+        assert """'"quoted" rgba(1,0,0,0.5)'""" in script
+        assert fig.requires_cairo() is False
+
+    def test_a_colour_in_the_metadata_does_not_need_cairo(self, tmp_path):
+        """The metadata block records default_color as given, alpha and all;
+        a comment draws nothing."""
+        fig = glp.figure(
+            style=GLEStyleConfig(
+                opaque_backdrop="white", default_color="rgba255(255,0,0,128)"
+            ),
+            data_prefix="opaque",
+        )
+        fig.add_subplot(111).plot(self.X, self.X)
+        script = _script(fig, tmp_path)
+        assert "! gleplot: default_color = rgba255(255,0,0,128)" in script
+        assert "line color rgb255(255,127,127)" in script
+        assert fig.requires_cairo() is False
+        fig.compiler = mock.Mock()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            fig.savefig(str(tmp_path / "opaque.pdf"))
+        assert fig.compiler.compile.call_args.kwargs["cairo"] is False
+
+    def test_the_legend_keeps_the_call_order(self, tmp_path):
+        """The span is drawn before the fill, but listed after it."""
+        fig, ax = _opaque_figure()
+        ax.fill_between(self.X, 0, 1, color="red", alpha=0.5, label="band")
+        ax.axvspan(0.5, 1.5, color="green", alpha=0.3, label="phase")
+        ax.legend()
+        key = _script(fig, tmp_path).split("begin key")[1]
+        assert key.index('"band"') < key.index('"phase"')
 
     @pytest.mark.parametrize(
         "order", [("red", "blue"), ("blue", "red")], ids=["red-first", "blue-first"]

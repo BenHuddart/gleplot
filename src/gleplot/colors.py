@@ -25,7 +25,7 @@ when the figure is rebuilt.
 """
 
 import re
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -417,7 +417,8 @@ _NUMERIC_RGBA_RE = re.compile(
 def _opaque_colors(line: str, backdrop: Tuple[int, int, int]) -> Tuple[str, int]:
     """``line`` with each translucent colour drawn opaque over ``backdrop``.
 
-    Each ``rgba255(...)``/``rgba(...)`` outside a quoted string becomes the
+    Each ``rgba255(...)``/``rgba(...)`` in the code, not in a string or a
+    comment (:func:`_gle_code_pieces`), becomes the
     ``rgb255(...)`` it looks like over ``backdrop`` (0-255 RGB), or GLE's
     ``clear`` at zero alpha, so it still draws nothing. Returns the line and
     how many colours changed.
@@ -443,11 +444,37 @@ def _opaque_colors(line: str, backdrop: Tuple[int, int, int]) -> Tuple[str, int]
         )
         return rgb255_expr(r, g, b)
 
-    # GLE strings are double-quoted: the even pieces are outside them.
-    pieces = line.split('"')
-    for i in range(0, len(pieces), 2):
-        pieces[i] = _NUMERIC_RGBA_RE.sub(blend, pieces[i])
-    return '"'.join(pieces), count
+    pieces = [
+        _NUMERIC_RGBA_RE.sub(blend, text) if code else text
+        for text, code in _gle_code_pieces(line)
+    ]
+    return "".join(pieces), count
+
+
+#: A GLE string literal: the writer quotes text with ``"``, or with ``'``
+#: when the text holds a ``"``.
+_GLE_STRING_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
+
+
+def _gle_code_pieces(line: str) -> List[Tuple[str, bool]]:
+    """``line`` cut into ``(text, is_code)`` pieces that join back to it.
+
+    String literals and the ``!`` comment that ends a line are not code, so
+    nothing that rewrites or reads colours in the code touches a label, a
+    comment or the metadata block.
+    """
+    pieces: List[Tuple[str, bool]] = []
+    pos = 0
+    for m in [*_GLE_STRING_RE.finditer(line), None]:
+        end = len(line) if m is None else m.start()
+        bang = line.find("!", pos, end)
+        if bang >= 0:
+            return pieces + [(line[pos:bang], True), (line[bang:], False)]
+        pieces.append((line[pos:end], True))
+        if m is not None:
+            pieces.append((m.group(0), False))
+            pos = m.end()
+    return pieces
 
 
 def gle_color_to_rgb255(color: str) -> Optional[Tuple[int, int, int]]:

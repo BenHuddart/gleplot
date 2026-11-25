@@ -219,6 +219,14 @@ class GLEStyleConfig:
         if value is not None and name == "opaque_backdrop":
             value = _stored_color(value)
             rgb, alpha = _rgba_parts(value)
+            if isinstance(rgb, str) and rgb.strip().startswith("#"):
+                # A hex alpha, which rgb_to_gle would drop with a warning.
+                digits = rgb.strip()[1:]
+                hex_alpha = {4: digits[3:] * 2, 8: digits[6:]}.get(len(digits))
+                try:
+                    alpha = int(hex_alpha, 16) / 255 if hex_alpha else None
+                except ValueError:
+                    pass  # not hex: _gle_color says so below
             opaque = alpha is None or float(alpha) >= 1
             if not opaque or (isinstance(rgb, str) and rgb.strip().lower() == "none"):
                 raise ValueError(

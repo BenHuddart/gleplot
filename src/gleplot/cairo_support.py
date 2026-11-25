@@ -34,6 +34,8 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from .colors import _gle_code_pieces
+
 #: The Cairo/TeX-safe font GLE itself substitutes for a rejected PostScript
 #: font when ``-cairo`` is on the command line (empirically verified: GLE
 #: 4.3.10 prints ``PostScript fonts not supported with '-cairo'; using
@@ -217,8 +219,13 @@ def script_requires_cairo(script: str) -> bool:
     """Whether a written GLE script draws a translucent colour, which only
     GLE's ``-cairo`` device can. Used for a figure with
     ``GLEStyleConfig.opaque_backdrop`` set, whose snapshot keeps the alpha
-    values the script no longer has."""
-    return bool(_RGBA_COLOR_RE.search(script))
+    values the script no longer has. A colour in a string or a comment,
+    such as the metadata block's ``default_color``, draws nothing."""
+    return any(
+        code and _RGBA_COLOR_RE.search(text)
+        for line in script.splitlines()
+        for text, code in _gle_code_pieces(line)
+    )
 
 
 def figure_requires_cairo(snapshot: dict) -> bool:
