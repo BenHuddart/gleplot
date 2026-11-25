@@ -126,6 +126,35 @@ def test_module_level_twinx_and_twiny_use_the_current_axes():
     assert ax.lines[1]["xaxis"] == "x2"
 
 
+def test_a_linear_twinx_under_a_log_y_axis_says_lin():
+    # GLE copies ``yaxis log`` onto y2; a twin curve reaching 0 then fails
+    # to compile ("illegal range for log axis").
+    fig, ax = _axes()
+    x = np.linspace(0, 5, 11)
+    ax.plot(x, x + 1)
+    ax.set_yscale("log")
+    ax.twinx().plot(x, x**2)
+    assert _axis_line(_script(fig), "y2axis") == "lin"
+
+
+def test_a_log_y_axis_with_no_twin_does_not_say_lin():
+    fig, ax = _axes()
+    ax.plot([1, 2, 3], [1, 10, 100])
+    ax.set_yscale("log")
+    assert "y2axis" not in _script(fig)
+
+
+def test_a_log_twinx_under_a_log_y_axis_says_log():
+    fig, ax = _axes()
+    ax.plot([1, 2, 3], [1, 10, 100])
+    ax.set_yscale("log")
+    right = ax.twinx()
+    right.plot([1, 2, 3], [10, 20, 30])
+    right.set_yscale("log")
+    right.set_ylim(10, 30)
+    assert _axis_line(_script(fig), "y2axis") == "min 10 max 30 log"
+
+
 # -- invert -----------------------------------------------------------------
 
 

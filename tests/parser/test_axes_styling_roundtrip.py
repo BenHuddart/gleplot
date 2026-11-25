@@ -159,6 +159,18 @@ def test_a_redundant_x2axis_lin_is_kept(tmp_path):
     assert "x2axis lin" in second.read_text(encoding="utf-8")
 
 
+def test_a_redundant_y2axis_lin_is_kept(tmp_path):
+    """``lin`` with a linear y axis is not something the writer emits."""
+    path = _write(tmp_path, "lin.gle", "   yaxis min 1 max 3\n   y2axis lin\n")
+    recognized = parse_gle_figure(path)
+    assert any(
+        "y2axis lin" in line for line in recognized.figure.axes_list[0].passthrough
+    )
+    second = tmp_path / "two.gle"
+    recognized.figure.savefig_gle(str(second))
+    assert "y2axis lin" in second.read_text(encoding="utf-8")
+
+
 def test_x2axis_off_is_reemitted(tmp_path):
     path = _write(tmp_path, "off.gle", "   x2axis off\n")
     recognized = parse_gle_figure(path)
