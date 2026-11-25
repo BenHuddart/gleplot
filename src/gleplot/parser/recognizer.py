@@ -4875,11 +4875,28 @@ class _Recognizer:
 
         ``prefix`` is ``"x2"`` or ``"y2"``. Mirrors that method's ``x2_lin``
         / ``y2_lin``: the primary axis is log, the twin scale is linear, and
-        the twin scale is actually in use. A ``lin`` outside that case is
-        preserved as passthrough instead of dropped.
+        the twin scale is in use and not switched off.
         """
         if not info[f"{prefix[0]}log"] or info[f"{prefix}log"]:
             return False
+        if info[f"{prefix}axis_off"]:
+            return False
+        if (
+            info[f"{prefix}min"] is not None
+            or info[f"{prefix}max"] is not None
+            or bool(info[f"{prefix}label"])
+            or info[f"{prefix}format"] is not None
+            or info[f"{prefix}angle"] is not None
+            or info[f"{prefix}labels_hei"] is not None
+            or info[f"{prefix}labels_color"] is not None
+        ):
+            return True
+        axis_key = f"{prefix[0]}axis"
+        for group in ("lines", "scatters", "errorbars", "hists", "file_series"):
+            for series in info[group]:
+                if series.get(axis_key) == prefix:
+                    return True
+        return False
         if (
             info[f"{prefix}min"] is not None
             or info[f"{prefix}max"] is not None
@@ -5048,9 +5065,10 @@ class _Recognizer:
                     (line_no, line_no) if line_no is not None else None,
                 )
         for prefix in ("x2", "y2"):
-            if info[f"{prefix}lin"] and not self._twin_lin_will_emit(info, prefix):
+            lin_will_emit = self._twin_lin_will_emit(info, prefix)
+            if info[f"{prefix}lin"] and not lin_will_emit:
                 # A ``lin`` the writer will not reproduce (the primary axis
-                # is not log, or the twin scale is not in use). Keep it.
+                # is not log, or the twin scale is off or not in use). Keep it.
                 info["passthrough"].append(f"    {prefix}axis lin")
                 self._note(
                     ImportCategory.STRUCTURE,
@@ -5058,6 +5076,11 @@ class _Recognizer:
                     "figure re-emits; kept as raw GLE",
                     None,
                 )
+            elif not info[f"{prefix}lin"] and lin_will_emit:
+                # No ``lin``: the twin scale inherited the primary ``log``
+                # (GLE ``do_axis_part_all``). Model it as log, or the writer
+                # would turn it linear with a ``lin``.
+                info[f"{prefix}log"] = True
 
     def _reconcile_places_names(self, info) -> None:
         """Drop a ``*names`` list the writer could never reproduce.
